@@ -5,6 +5,7 @@
 #include "bigmsg.cpm.h"
 
 CpvDeclare(int, bigmsg_index);
+CpvDeclare(int, ackmsg_index);
 CpvDeclare(int, shortmsg_index);
 CpvDeclare(int, msg_size);
 CpvDeclare(int, trial);               // increments per trial, gets set to 0 at the start of a new msg size
@@ -153,7 +154,7 @@ void shortmsg_handler(void *vmsg) {
 
 void bigmsg_handler(void *vmsg)
 {
-  int i, next, pe;
+  int i, next;
   message msg = (message)vmsg;
   // if this is a receiving PE
   if (CmiMyPe() >= CmiNumPes() / 2) {
@@ -174,48 +175,55 @@ void bigmsg_handler(void *vmsg)
       
       CmiFree(msg);
       msg = (message)CmiAlloc(CpvAccess(msg_size));
-      CmiSetHandler(msg, CpvAccess(bigmsg_index));
+      CmiSetHandler(msg, CpvAccess(ackmsg_index));
       CmiSyncSendAndFree(0, CpvAccess(msg_size), msg);
     } else
       CmiFree(msg);
-  } else { //Pe-0 receives all acks
-    CpvAccess(ack_count) = 1 + CpvAccess(ack_count);
+  } else
+    CmiPrintf("\nError: Only node-1 can be receiving node!!!!\n");
+}
+
+void pe0_ack_handler(void *vmsg)
+{
+  int pe;
+  message msg = (message)vmsg;
+   //Pe-0 receives all acks
+  CpvAccess(ack_count) = 1 + CpvAccess(ack_count);
+
+  // DEBUG: Computation Print Check
+  CmiPrintf("All %d messages of size %d on trial %d OK\n", MSG_COUNT, CpvAccess(msg_size), CpvAccess(trial));
     
-    // DEBUG: Computation Print Check
-    CmiPrintf("All %d messages of size %d on trial %d OK\n", MSG_COUNT, CpvAccess(msg_size), CpvAccess(trial));
-      
 
-    if(CpvAccess(ack_count) == CmiNumPes()/2) {
-      CpvAccess(ack_count) = 0;
-      CpvAccess(total_time) = CmiWallTimer() - CpvAccess(total_time);
+  if(CpvAccess(ack_count) == CmiNumPes()/2) {
+    CpvAccess(ack_count) = 0;
+    CpvAccess(total_time) = CmiWallTimer() - CpvAccess(total_time);
 
-      // DEBUG: Original Print Statement
-      //CmiPrintf("Received [Trial=%d, msg size=%d] ack on PE-#%d send time=%lf, process time=%lf, total time=%lf\n",
-      //         CpvAccess(trial), CpvAccess(msg_size), CmiMyPe(), CpvAccess(send_time), CpvAccess(process_time), CpvAccess(total_time));
+    // DEBUG: Original Print Statement
+    //CmiPrintf("Received [Trial=%d, msg size=%d] ack on PE-#%d send time=%lf, process time=%lf, total time=%lf\n",
+    //         CpvAccess(trial), CpvAccess(msg_size), CmiMyPe(), CpvAccess(send_time), CpvAccess(process_time), CpvAccess(total_time));
 
-      CmiFree(msg);
+    CmiFree(msg);
 
-      // store times in arrays
-      send_time[CpvAccess(trial)] =  CpvAccess(send_time) * 1000000.0;       // convert to microsecs.
-      process_time[CpvAccess(trial)] = CpvAccess(process_time) * 1000000.0;
-      total_time[CpvAccess(trial)] = CpvAccess(total_time) * 1000000.0;
+    // store times in arrays
+    send_time[CpvAccess(trial)] =  CpvAccess(send_time) * 1000000.0;       // convert to microsecs.
+    process_time[CpvAccess(trial)] = CpvAccess(process_time) * 1000000.0;
+    total_time[CpvAccess(trial)] = CpvAccess(total_time) * 1000000.0;
 
-      CpvAccess(trial) = CpvAccess(trial) + 1;
+    CpvAccess(trial) = CpvAccess(trial) + 1;
 
-      // print results
-      if (CpvAccess(warmup_flag) || CpvAccess(trial) == nTRIALS_PER_SIZE) print_results();
+    // print results
+    if (CpvAccess(warmup_flag) || CpvAccess(trial) == nTRIALS_PER_SIZE) print_results();
 
-      // if this is not the warmup round, and we have finished the final trial, and we are on the final msg size, exit
-      if(!CpvAccess(warmup_flag) && CpvAccess(trial) == nTRIALS_PER_SIZE && CpvAccess(round) == nMSG_SIZE - 1)
-        Cpm_bigmsg_stop(CpmSend(CpmALL));
-      else {
-        // CmiPrintf("\nSending short msgs from PE-%d", CmiMyPe());
-        for(pe = 0 ; pe<CmiNumPes() / 2; pe++) {
-          int smsg_size = 4+CmiMsgHeaderSizeBytes;
-          message smsg = (message)CmiAlloc(smsg_size);
-          CmiSetHandler(smsg, CpvAccess(shortmsg_index));
-          CmiSyncSendAndFree(pe, smsg_size, smsg);
-        }
+    // if this is not the warmup round, and we have finished the final trial, and we are on the final msg size, exit
+    if(!CpvAccess(warmup_flag) && CpvAccess(trial) == nTRIALS_PER_SIZE && CpvAccess(round) == nMSG_SIZE - 1)
+      Cpm_bigmsg_stop(CpmSend(CpmALL));
+    else {
+      // CmiPrintf("\nSending short msgs from PE-%d", CmiMyPe());
+      for(pe = 0 ; pe<CmiNumPes() / 2; pe++) {
+        int smsg_size = 4+CmiMsgHeaderSizeBytes;
+        message smsg = (message)CmiAlloc(smsg_size);
+        CmiSetHandler(smsg, CpvAccess(shortmsg_index));
+        CmiSyncSendAndFree(pe, smsg_size, smsg);
       }
     }
   }
@@ -239,6 +247,7 @@ void bigmsg_init()
 void bigmsg_moduleinit(int argc, char **argv)
 {
   CpvInitialize(int, bigmsg_index);
+  CpvInitialize(int, ackmsg_index);
   CpvInitialize(int, shortmsg_index);
   CpvInitialize(int, msg_size);
   CpvInitialize(int, trial);
@@ -252,6 +261,7 @@ void bigmsg_moduleinit(int argc, char **argv)
 
   CpvAccess(bigmsg_index) = CmiRegisterHandler(bigmsg_handler);
   CpvAccess(shortmsg_index) = CmiRegisterHandler(shortmsg_handler);
+  CpvAccess(ackmsg_index) = CmiRegisterHandler(pe0_ack_handler);
   CpvAccess(msg_size) = 16+CmiMsgHeaderSizeBytes;
   CpvAccess(trial) = 0;
   CpvAccess(round) = 0;
