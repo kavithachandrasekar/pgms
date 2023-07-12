@@ -152,6 +152,15 @@ void shortmsg_handler(void *vmsg) {
   send_msg();
 }
 
+void do_work(long start, long end, void *result) {
+  long tmp=0;
+  for (long i=start; i<=end; i++) {
+    tmp+=(long)(sqrt(1+cos(i*1.57)));
+  }
+  *(long *)result = tmp + *(long *)result;
+}
+
+
 void bigmsg_handler(void *vmsg)
 {
   int i, next;
@@ -159,10 +168,17 @@ void bigmsg_handler(void *vmsg)
   // if this is a receiving PE
   if (CmiMyPe() >= CmiNumPes() / 2) {
     CpvAccess(recv_count) = 1 + CpvAccess(recv_count);
-    int sum = 0;
+    long sum = 0;
+    long result = 0;
     double num_ints = (CpvAccess(msg_size) - CmiMsgHeaderSizeBytes) / sizeof(int);
     double exp_avg = (num_ints - 1) / 2;
-    for (i = 0; i < num_ints; ++i) sum += msg->payload[i];
+    for (i = 0; i < num_ints; ++i) {
+      sum += msg->payload[i];
+      do_work(i,sum,&result);
+    }
+    if(result < 0) {
+      CmiPrintf("Error! in computation");
+    }
     double calced_avg = sum / num_ints;
     if (calced_avg != exp_avg) {
       CmiPrintf("Calculated average of %f does not match expected value of %f, exiting\n", calced_avg, exp_avg);
