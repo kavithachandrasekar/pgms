@@ -33,7 +33,6 @@ class main : public CBase_main
   int phase;
   int pipeSize;
   CProxy_PingG gid;
-  bool warmupRun; 
 public:
   main(CkMigrateMessage *m) {}
   main(CkArgMsg* m)
@@ -42,32 +41,30 @@ public:
     mainProxy = thishandle;
     gid = CProxy_PingG::ckNew();
     phase=0;
-    warmupRun = true; 
     CkStartQD(CkCallback(CkIndex_main::maindone(), mainProxy));
     delete m;
   };
 
   void maindone(void)
   {
-    CkPrintf("\nIn maindone");
-    bool reportTime = !warmupRun;
     switch(phase) {
       case 0:
-        gid.start(reportTime);
+        phase++;
+        gid.start();
+        break;
+      case 1:
+        phase++;
+        gid.start();
         break;
       default:
         CkExit();
     }
-    //if (!warmupRun) 
-    {
-      phase++; 
-    }
-    warmupRun = !warmupRun; 
   };
 };
 
 class PingG : public CBase_PingG
 {
+  bool warmUp;
   bool printResult; 
   CProxyElement_PingG *pp, *pe0;
   CProxyElement_PingG *pe;
@@ -84,6 +81,7 @@ public:
     recv_count = 0;
     ack_count = 0;
     round = 0;
+    warmUp = true;
     if(CkMyPe() < CkNumPes()/2) {
       int nbr = CkNumPes()/2+CkMyPe(); //Send from each PE on node-0 to nbr pe on node-1
     CkPrintf("PE-%d(node-%d, rank-%d) sends to nbr PE-%d\n", CkMyPe(), CkMyNode(), CkMyRank(), nbr);
@@ -139,7 +137,7 @@ public:
 
   }
 
-  void start(bool reportTime)
+  void start()
   {
     resetTimer();
     if(CkMyPe() < CkNumPes()/2) {
@@ -194,16 +192,22 @@ public:
       ack_count = 0;
       CkPrintf("All %d messages of size %d on trial %d OK\n", MSG_COUNT, msg_sizes[round], trial);
       trial++;
-      if(trial == nTRIALS_PER_SIZE) {
-        print_results();
+      if(trial == nTRIALS_PER_SIZE || warmUp) {
+        if(!warmUp)
+          print_results();
         trial = 0;
         round++;
         if(round == nMSG_SIZE) {
+          if(warmUp) {
+            CkPrintf("Warmup done\n");
+            warmUp = !warmUp;
+          }
+          round = 0;
           mainProxy.maindone();
           return;
         }
       }
-      thisProxy.start(0.0);
+      thisProxy.start();
     }
   }
 };

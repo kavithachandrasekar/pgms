@@ -9,8 +9,8 @@ mainmodule pingpong {
 
   group PingG {
     entry PingG(void);
-    entry void start(bool reportTime);
-    entry void bigmsg_recv(PingMsg *);
+    entry void start();
+    entry [expedited] void bigmsg_recv(PingMsg *);
     entry void pe0ack(PingMsg *);
   }
 };
