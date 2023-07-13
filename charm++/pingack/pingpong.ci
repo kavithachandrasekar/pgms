@@ -10,6 +10,7 @@ mainmodule pingpong {
   group PingG {
     entry PingG(void);
     entry void start();
+    entry void send_msgs();
     entry [expedited] void bigmsg_recv(PingMsg *);
     entry void pe0ack(PingMsg *);
   }

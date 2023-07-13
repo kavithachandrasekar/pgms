@@ -72,7 +72,7 @@ class PingG : public CBase_PingG
   int nbr, recv_count, ack_count,trial;
   double start_time, end_time;
   double send_time_pe, process_time_pe, total_time_pe;
-  PingMsg *collectedMsg;
+  PingMsg **msg_collection;
 public:
   PingG()
   {
@@ -140,10 +140,19 @@ public:
   void start()
   {
     resetTimer();
-    if(CkMyPe() < CkNumPes()/2) {
+    if(CkMyPe() < CkNumPes()/2 && CkMyPe()!=0) {
+      msg_collection = new PingMsg*[MSG_COUNT];
+      for(int k = 0; k < MSG_COUNT; k++)
+        msg_collection[k] = new (msg_sizes[round]*sizeof(int)) PingMsg;
+      thisProxy[thisIndex].send_msgs();
+    }
+  }
+
+  void send_msgs() {
+    if(CkMyPe() < CkNumPes()/2 && CkMyPe()!=0) {
       for(int k = 0; k < MSG_COUNT; k++) {
         double create_time = CkWallTimer();
-        PingMsg *msg = new (msg_sizes[round]*sizeof(int)) PingMsg;
+        PingMsg *msg = msg_collection[k];//new (msg_sizes[round]*sizeof(int)) PingMsg;
         process_time_pe += CkWallTimer() - create_time;
         double num_ints = msg_sizes[round];
         for (int i = 0; i < num_ints; ++i)
@@ -184,7 +193,7 @@ public:
   {
     delete msg;
     ack_count++;
-    if(ack_count == CkNumPes()/2) {
+    if(ack_count == CkNumPes()/2 - 1) {
       total_time_pe = CkWallTimer() - total_time_pe;
       send_time[trial] = send_time_pe;
       process_time[trial] = process_time_pe;
