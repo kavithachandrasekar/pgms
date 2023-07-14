@@ -17,6 +17,7 @@ double send_time[nTRIALS_PER_SIZE];
 class PingMsg : public CMessage_PingMsg
 {
   public:
+    int round;
     int *payload;
 
 };
@@ -24,9 +25,6 @@ class PingMsg : public CMessage_PingMsg
 CProxy_main mainProxy;
 int iterations;
 int msg_sizes[nMSG_SIZE] = {56, 4096, 65536};
-
-#define P1 0
-#define P2 1%CkNumPes()
 
 class main : public CBase_main
 {
@@ -50,11 +48,11 @@ public:
     switch(phase) {
       case 0:
         phase++;
-        gid.start();
+        gid.start(0);
         break;
       case 1:
         phase++;
-        gid.start();
+        gid.start(0);
         break;
       default:
         CkExit();
@@ -68,7 +66,7 @@ class PingG : public CBase_PingG
   bool printResult; 
   CProxyElement_PingG *pp, *pe0;
   CProxyElement_PingG *pe;
-  int round;
+  int round, expected_round,run;
   int nbr, recv_count, ack_count,trial;
   double start_time, end_time;
   double send_time_pe, process_time_pe, total_time_pe;
@@ -77,10 +75,12 @@ public:
   PingG()
   {
     nbr = -1;
+    run = 0;
     trial = 0;
     recv_count = 0;
     ack_count = 0;
     round = 0;
+    expected_round = 0;
     warmUp = true;
     if(CkMyPe() < CkNumPes()/2) {
       int nbr = CkNumPes()/2+CkMyPe(); //Send from each PE on node-0 to nbr pe on node-1
@@ -88,7 +88,6 @@ public:
       pp = new CProxyElement_PingG(thisgroup,nbr);
     } else
       pe0 = new CProxyElement_PingG(thisgroup,0);
-    round = 0;
   }
   PingG(CkMigrateMessage *m) {}
 
@@ -137,14 +136,31 @@ public:
 
   }
 
-  void start()
+  void start(int cur_round)
   {
+    round = cur_round;
     resetTimer();
-    if(CkMyPe() < CkNumPes()/2 && CkMyPe()!=0) {
-      msg_collection = new PingMsg*[MSG_COUNT];
-      for(int k = 0; k < MSG_COUNT; k++)
-        msg_collection[k] = new (msg_sizes[round]*sizeof(int)) PingMsg;
-      thisProxy[thisIndex].send_msgs();
+    if(CkMyPe()!=0) {
+      if(CkMyPe() < CkNumPes()/2) {
+        if(round != expected_round){
+          CkPrintf("\n[PE-%d]Mixed up msg size %d!=%d!!!",CkMyPe(), round, expected_round);
+        }
+        run++;
+        if(run < nMSG_SIZE)
+          expected_round++;
+        else if (run == nMSG_SIZE)
+          expected_round = 0;
+        else {
+          if((run-nMSG_SIZE)%nTRIALS_PER_SIZE==0)
+            expected_round++;
+        }
+        msg_collection = new PingMsg*[MSG_COUNT];
+        for(int k = 0; k < MSG_COUNT; k++) {
+          msg_collection[k] = new (msg_sizes[round]*sizeof(int)) PingMsg;
+          msg_collection[k]->round = round;
+        }
+        thisProxy[thisIndex].send_msgs();
+      }
     }
   }
 
@@ -167,6 +183,9 @@ public:
 
   void bigmsg_recv(PingMsg *msg)
   {
+    round = msg->round;
+    if(round != expected_round)
+      CkPrintf("\n[PE-%d]Error in round on recv %d !=%d!!!", CkMyPe(),round, expected_round);
     long sum = 0;
     long result = 0;
     double num_ints = msg_sizes[round];
@@ -183,6 +202,17 @@ public:
     recv_count++;
     delete msg;
     if(recv_count == MSG_COUNT) {
+      if(CkMyPe() > CkNumPes()/2) {
+      run++;
+      if(run < nMSG_SIZE)
+        expected_round++;
+      else if (run == nMSG_SIZE)
+        expected_round = 0;
+      else {
+        if((run-nMSG_SIZE)%nTRIALS_PER_SIZE==0)
+          expected_round++;
+        }
+      }
       recv_count = 0;
       PingMsg *ack_msg = new (msg_sizes[round]*sizeof(int)) PingMsg;
       (*pe0).pe0ack(ack_msg);
@@ -216,7 +246,7 @@ public:
           return;
         }
       }
-      thisProxy.start();
+      thisProxy.start(round);
     }
   }
 };

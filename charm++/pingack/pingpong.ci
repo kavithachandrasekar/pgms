@@ -5,11 +5,11 @@ mainmodule pingpong {
     entry main(CkArgMsg *);
     entry void maindone(void);
   };
-  message PingMsg{int payload[];};
+  message PingMsg{int round;int payload[];};
 
   group PingG {
     entry PingG(void);
-    entry void start();
+    entry void start(int cur_round);
     entry void send_msgs();
     entry [expedited] void bigmsg_recv(PingMsg *);
     entry void pe0ack(PingMsg *);
