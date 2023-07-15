@@ -1,0 +1,18 @@
+mainmodule pingpong_fixedmsg {
+  readonly CProxy_main mainProxy;
+  readonly int iterations;
+  mainchare main {
+    entry main(CkArgMsg *);
+    entry void maindone(void);
+  };
+//  message PingMsg{int round;int payload[];};
+  message PingMsg;
+
+  group PingG {
+    entry PingG(void);
+    entry void start();
+    entry void send_msgs();
+    entry [expedited] void bigmsg_recv(PingMsg *);
+    entry void pe0ack(PingMsg *);
+  }
+};
