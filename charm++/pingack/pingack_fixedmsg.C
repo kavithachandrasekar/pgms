@@ -5,7 +5,6 @@
 #define MSG_COUNT 100
 
 #define nTRIALS_PER_SIZE 10
-#define CALCULATION_PRECISION 0.0001  // the decimal place that the output data is rounded to
 
 double total_time[nTRIALS_PER_SIZE];  // times are stored in us
 double process_time[nTRIALS_PER_SIZE];
@@ -70,7 +69,7 @@ public:
   double get_average(double arr[]) {
     double tot = 0;
     for (int i = 0; i < nTRIALS_PER_SIZE; ++i) tot += arr[i];
-    return (std::round(tot / CALCULATION_PRECISION) * CALCULATION_PRECISION / nTRIALS_PER_SIZE);
+    return tot/nTRIALS_PER_SIZE;
   }
 
   double get_stdev(double arr[]) {
@@ -92,7 +91,7 @@ public:
   void print_stats_pe1() {
     CkPrintf("PE-1: Send time and process time (msg_size=%d)\n", BIGMSG_SIZE);
     CkPrintf("Format: {#PEs},{msg_size},{averages*2},{stdevs*2},{maxs*2}\n");
-    CkPrintf("DATA,%d,%d,%f,%f,%f,%f,%f,%f\n", CkNumPes(), BIGMSG_SIZE, get_average(send_time), get_average(process_time),
+    CkPrintf("DATA,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n", CkNumPes(), BIGMSG_SIZE, get_average(send_time), get_average(process_time),
                                 get_stdev(send_time), get_stdev(process_time), get_max(send_time), get_max(process_time));
     thisProxy[0].print_results();
   }
@@ -107,7 +106,7 @@ public:
     }
     // print data:
     CkPrintf("Format: {#PEs},{msg_size},{average},{stdev},{max}\n");
-    CkPrintf("DATA,%d,%d,%f,%f,%f\n", CkNumPes(), BIGMSG_SIZE, get_average(total_time), get_stdev(total_time), get_max(total_time));
+    CkPrintf("DATA,%d,%d,%.4f,%.4f,%.4f\n", CkNumPes(), BIGMSG_SIZE, get_average(total_time), get_stdev(total_time), get_max(total_time));
     mainProxy.maindone();
   }
 
