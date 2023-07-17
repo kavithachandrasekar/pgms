@@ -245,6 +245,7 @@ void pe0_ack_handler(void *vmsg)
   }
 }
 
+
 void bigmsg_init()
 {
   int totalpes = CmiNumPes(); //p=num_pes
@@ -259,6 +260,8 @@ void bigmsg_init()
       send_msg();
   }
 }
+
+
 
 void bigmsg_moduleinit(int argc, char **argv)
 {
