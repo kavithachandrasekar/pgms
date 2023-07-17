@@ -2,7 +2,6 @@
 #include <math.h>
 #include <charm++.h>
 
-#define NITER 1000
 #define MSG_COUNT 100
 
 #define nTRIALS_PER_SIZE 10
@@ -12,9 +11,10 @@ double total_time[nTRIALS_PER_SIZE];  // times are stored in us
 double process_time[nTRIALS_PER_SIZE];
 double send_time[nTRIALS_PER_SIZE];
 
-#include "pingpong_fixedmsg.decl.h"
+#include "pingack_fixedmsg.decl.h"
 
 #define BIGMSG_SIZE 4096
+#define PE0_NO_SEND 1
 
 class PingMsg : public CMessage_PingMsg
 {
@@ -23,39 +23,29 @@ class PingMsg : public CMessage_PingMsg
 };
 
 CProxy_main mainProxy;
-int iterations;
 
 class main : public CBase_main
 {
-  int phase;
-  int pipeSize;
+  bool warmup;
   CProxy_PingG gid;
 public:
   main(CkMigrateMessage *m) {}
   main(CkArgMsg* m)
   {
-    iterations=NITER;
     mainProxy = thishandle;
     gid = CProxy_PingG::ckNew();
-    phase=0;
-    CkStartQD(CkCallback(CkIndex_main::maindone(), mainProxy));
+    warmup = true;;
+    gid.start();
     delete m;
   };
 
   void maindone(void)
   {
-    switch(phase) {
-      case 0:
-        phase++;
-        gid.start();
-        break;
-      case 1:
-        phase++;
-        gid.start();
-        break;
-      default:
-        CkExit();
-    }
+    if(warmup) {
+      warmup = false;
+      gid.start();
+    } else
+      CkExit();
   };
 };
 
@@ -63,41 +53,24 @@ class PingG : public CBase_PingG
 {
   bool warmUp;
   bool printResult; 
-  CProxyElement_PingG *pp, *pe0;
-  CProxyElement_PingG *pe;
-  int nbr, recv_count, ack_count,trial;
-  double start_time, end_time;
+  int recv_count, ack_count,trial;
   double send_time_pe, process_time_pe, total_time_pe;
   PingMsg **msg_collection;
 public:
   PingG()
   {
-    nbr = -1;
     trial = 0;
     recv_count = 0;
     ack_count = 0;
     warmUp = true;
-    if(CkMyPe() < CkNumPes()/2) {
-      int nbr = CkNumPes()/2+CkMyPe(); //Send from each PE on node-0 to nbr pe on node-1
-    CkPrintf("PE-%d(node-%d, rank-%d) sends to nbr PE-%d\n", CkMyPe(), CkMyNode(), CkMyRank(), nbr);
-      pp = new CProxyElement_PingG(thisgroup,nbr);
-    } else
-      pe0 = new CProxyElement_PingG(thisgroup,0);
   }
+
   PingG(CkMigrateMessage *m) {}
-
-  void resetTimer() {
-    send_time_pe = process_time_pe = total_time_pe = 0.0;
-  }
-
-  double round_to(double val, double precision) {
-    return std::round(val / precision) * precision;
-  }
 
   double get_average(double arr[]) {
     double tot = 0;
     for (int i = 0; i < nTRIALS_PER_SIZE; ++i) tot += arr[i];
-    return (round_to(tot, CALCULATION_PRECISION) / nTRIALS_PER_SIZE);
+    return (std::round(tot / CALCULATION_PRECISION) * CALCULATION_PRECISION / nTRIALS_PER_SIZE);
   }
 
   double get_stdev(double arr[]) {
@@ -112,11 +85,19 @@ public:
   double get_max(double arr[]) {
     double max = arr[0];
     for (int i = 1; i < nTRIALS_PER_SIZE; ++i)
-                  if (arr[i] > arr[0]) max = arr[i];
-          return max;
+      if (arr[i] > arr[0]) max = arr[i];
+        return max;
+  }
+
+  void print_stats_pe1() {
+    CkPrintf("PE-1: Send time and process time (msg_size=%d)\n", BIGMSG_SIZE);
+    CkPrintf("Format: {#PEs},{msg_size},{averages*2},{stdevs*2},{maxs*2}\n");
+    CkPrintf("DATA,%d,%d,%f,%f,%f,%f,%f,%f\n", CkNumPes(), BIGMSG_SIZE, get_average(send_time), get_average(process_time),
+                                get_stdev(send_time), get_stdev(process_time), get_max(send_time), get_max(process_time));
+    thisProxy[0].print_results();
   }
   void print_results() {
-    CkPrintf("msg_size\n%d\n", BIGMSG_SIZE);
+    CkPrintf("PE-0: Roundtrip Time (msg_size=%d)\n", BIGMSG_SIZE);
     for (int i = 0; i < nTRIALS_PER_SIZE; ++i) {
       // DEBUG: print without trial number:
       // CmiPrintf("%f\n%f\n%f\n", send_time[i], process_time[i], total_time[i]);
@@ -125,16 +106,18 @@ public:
       // CmiPrintf("%d %f\n  %f\n  %f\n", i, send_time[i], process_time[i], total_time[i]);
     }
     // print data:
-    CkPrintf("Format: {#PEs},{msg_size},{averages*3},{stdevs*3},{maxs*3}\n");
-    CkPrintf("DATA,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f\n", CkNumPes(), BIGMSG_SIZE, get_average(send_time), get_average(process_time), get_average(total_time),
-                                get_stdev(send_time), get_stdev(process_time), get_stdev(total_time), get_max(send_time), get_max(process_time), get_max(total_time));
-
+    CkPrintf("Format: {#PEs},{msg_size},{average},{stdev},{max}\n");
+    CkPrintf("DATA,%d,%d,%f,%f,%f\n", CkNumPes(), BIGMSG_SIZE, get_average(total_time), get_stdev(total_time), get_max(total_time));
+    mainProxy.maindone();
   }
 
   void start()
   {
-    resetTimer();
-    if(CkMyPe()!=0) {
+    send_time_pe = process_time_pe = total_time_pe = 0.0; //reset timers
+#ifdef PE0_NO_SEND
+    if(CkMyPe()!=0)
+#endif
+    {
       if(CkMyPe() < CkNumPes()/2) {
         msg_collection = new PingMsg*[MSG_COUNT];
         for(int k = 0; k < MSG_COUNT; k++)
@@ -145,19 +128,21 @@ public:
   }
 
   void send_msgs() {
-    if(CkMyPe() < CkNumPes()/2 && CkMyPe()!=0) {
-      for(int k = 0; k < MSG_COUNT; k++) {
-        double create_time = CkWallTimer();
-        PingMsg *msg = msg_collection[k];
-        process_time_pe += CkWallTimer() - create_time;
-        double num_ints = BIGMSG_SIZE;
-        for (int i = 0; i < num_ints; ++i)
-          msg->payload[i] = i;
-        process_time_pe += CkWallTimer() - create_time;
-        double send_time = CkWallTimer();
-        (*pp).bigmsg_recv(msg);
-        send_time_pe += CkWallTimer() - send_time;
-      }
+    for(int k = 0; k < MSG_COUNT; k++) {
+      double create_time = CkWallTimer();
+      PingMsg *msg = msg_collection[k];
+      process_time_pe += CkWallTimer() - create_time;
+      double num_ints = BIGMSG_SIZE;
+      for (int i = 0; i < num_ints; ++i)
+        msg->payload[i] = i;
+      process_time_pe += CkWallTimer() - create_time;
+      double send_time = CkWallTimer();
+      thisProxy[CkNumPes()/2+CkMyPe()].bigmsg_recv(msg); //Send from each PE on node-0 to nbr pe on node-1
+      send_time_pe += CkWallTimer() - send_time;
+    }
+    if(CkMyPe()==1) { //Recording send_time and process_time on PE-1
+      send_time[++trial] = send_time_pe;
+      process_time[trial] = process_time_pe;
     }
   }
 
@@ -176,36 +161,33 @@ public:
       CkAbort("Calculated average not matching");
     }
 
-    recv_count++;
     delete msg;
-    if(recv_count == MSG_COUNT) {
+    if(++recv_count == MSG_COUNT) {
       recv_count = 0;
-      PingMsg *ack_msg = new PingMsg();
-      (*pe0).pe0ack(ack_msg);
+      thisProxy[0].pe0ack();//Send ack to PE-0
     }
   }
 
-  void pe0ack(PingMsg *msg)
+  void pe0ack()
   {
-    delete msg;
-    ack_count++;
-    if(ack_count == CkNumPes()/2 - 1) {
+    int expected_acks = CkNumPes()/2;
+#ifdef PE0_NO_SEND
+    expected_acks -= 1;
+#endif
+    if(++ack_count == expected_acks) {
       total_time_pe = CkWallTimer() - total_time_pe;
-      send_time[trial] = send_time_pe;
-      process_time[trial] = process_time_pe;
-      total_time[trial] = total_time_pe;
+      total_time[trial] = total_time_pe; //Recording total time on PE-0 since it performs roundtrip
       ack_count = 0;
       CkPrintf("All %d messages of size %d on trial %d OK\n", MSG_COUNT, BIGMSG_SIZE, trial);
-      trial++;
-      if(trial == nTRIALS_PER_SIZE || warmUp) {
-        if(!warmUp)
-          print_results();
+      if(++trial == nTRIALS_PER_SIZE || warmUp) {
         trial = 0;
-        if(warmUp) {
+        if(!warmUp) {
+          thisProxy[1].print_stats_pe1();
+        } else {
           CkPrintf("Warmup done\n");
           warmUp = !warmUp;
+          mainProxy.maindone();
         }
-        mainProxy.maindone();
         return;
       }
       thisProxy.start();
@@ -215,4 +197,4 @@ public:
 
 
 
-#include "pingpong_fixedmsg.def.h"
+#include "pingack_fixedmsg.def.h"

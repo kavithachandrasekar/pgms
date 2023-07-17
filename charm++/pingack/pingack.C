@@ -13,7 +13,7 @@ double total_time[nTRIALS_PER_SIZE];  // times are stored in us
 double process_time[nTRIALS_PER_SIZE];
 double send_time[nTRIALS_PER_SIZE];
 
-#include "pingpong.decl.h"
+#include "pingack.decl.h"
 class PingMsg : public CMessage_PingMsg
 {
   public:
@@ -253,4 +253,4 @@ public:
 
 
 
-#include "pingpong.def.h"
+#include "pingack.def.h"

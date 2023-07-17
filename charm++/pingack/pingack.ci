@@ -1,4 +1,4 @@
-mainmodule pingpong {
+mainmodule pingack {
   readonly CProxy_main mainProxy;
   readonly int iterations;
   mainchare main {
