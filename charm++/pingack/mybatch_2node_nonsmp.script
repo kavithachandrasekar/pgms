@@ -1,0 +1,14 @@
+#!/bin/bash
+#SBATCH --mem=16g
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=8
+#SBATCH --cpus-per-task=16
+#SBATCH --partition=cpu
+#SBATCH --account=mzu-delta-cpu
+#SBATCH --job-name=myjobtest
+#SBATCH --time=00:10:00      # hh:mm:ss for the job
+#SBATCH --constraint="scratch"
+
+module load openmpi-5.0_beta/5.0.0rc9
+echo "job is starting ppn=2, process cnt per node=1, node=1 on `hostname`"
+srun --mpi=pmi2 -n 16 ./pgm_fixed +pemap 0-15
