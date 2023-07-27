@@ -31,22 +31,30 @@ module DiffusionLB {
     entry void notifyNeighbor(int isNbor, int node) {
 //inc neighbor count upto 2xK
     serial {
-      int toAdd = 1;
-      for(int k=0;k<neighborCount;k++)
-        if(nbors[k] == node) {
-          toAdd = 0;
-          break;
-        }
+      int toAdd = 0;
+      
+      if(isNbor) {
+        toAdd = 1;
+        for(int k=0;k<neighborCount;k++)
+          if(nbors[k] == node) {
+            toAdd = 0;
+            break;
+          }
+      }
 
       if(toAdd) {
-        if(neighborCount<NUM_NEIGHBORS);
+        CkPrintf("\n[PE-%d]Adding %dth nbor node %d to me", CkMyPe(), neighborCount,node);
+//        if(neighborCount<NUM_NEIGHBORS)
           nbors[neighborCount++] = node;
       }
       notif++;
-      if(notif == CkNumNodes())
+      if(notif == CkNumNodes()) {
+        for(int k=0;k<neighborCount;k++)
+          CkPrintf("\n[PE-%d], my largest comm %dth neighbors are %d\n", CkMyPe(), k, nbors[k]);
         notif = 0;
         doneNborExng();
       }
+    }
     };
     
     entry void iterate() {
@@ -57,9 +65,9 @@ module DiffusionLB {
             serial "Send loadInfo" {
                 if(CkMyPe()==0)
                   CkPrintf("\n---------------------------------------------------------------------------------------------\n");
-//                CkPrintf("\n[Node-%d], sendToNeighbors.size = %lu", CkMyNode(), sendToNeighbors.size());
-                for(int i = 0; i < sendToNeighbors.size(); i++) {
- //                   CkPrintf("\n[%d] itr-%d Sending to node-%d \n", CkMyPe(), itr, sendToNeighbors[i]);
+                CkPrintf("\n[Node-%d], sendToNeighbors.size = %lu", CkMyNode(), neighborCount);
+                for(int i = 0; i < neighborCount; i++) {
+                    CkPrintf("\n[%d] itr-%d Sending load info to node-%d \n", CkMyPe(), itr, sendToNeighbors[i]);
                     thisProxy[CkNodeFirst(sendToNeighbors[i])].ReceiveLoadInfo(itr, my_load, CkMyNode());
                 }         
                  
@@ -74,8 +82,9 @@ module DiffusionLB {
 //                                                CkMyPe(), CkMyNode(), itr, node);
                   }
                   int pos = findNborIdx(node);
-                  if(node > CkMyNode()) pos = 1;
-                  if(CkMyNode() == 0 || CkMyNode() == CkNumNodes()-1) pos = 0;
+                  CkPrintf("\n[PE-%d]pos = %d", CkMyPe(), pos);
+                  if(pos < 0 || pos >= CkNumNodes())
+                    CkPrintf("\nError in pos %d", pos);
                   loadNeighbors[pos] = load;
                 }
             }
@@ -89,11 +98,13 @@ module DiffusionLB {
 
             for(temp_itr = 0; temp_itr < toSend; temp_itr++) {
                 when PseudoLoad[itr](int itr, double load, int node) serial {
-                    if(load > 0) {
-                        CkPrintf("[%d] GRD itr %d : Pseudo load received %f from node %d \n", CkMyPe(), itr, load, node);
-                    }
+                    if(load > 0)
+                        CkPrintf("[%d] GRD itr %d : Pseudo load received %f from node %d \n",
+                                          CkMyPe(), itr, load, node);
                     my_load += load;
-                    int pos = neighborPosReceive[node];
+                    int pos = findNborIdx(node);
+                    CkPrintf("\n[PE-%d]pos = %d", CkMyPe(), pos);
+                    if(pos < 0 || pos >= CkNumNodes())
                     toReceiveLoad[pos] += load;
                 }
             }
