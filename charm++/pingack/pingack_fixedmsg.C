@@ -2,9 +2,10 @@
 #include <math.h>
 #include <charm++.h>
 
-#define MSG_COUNT 100
+#define MSG_COUNT 1000
 
 #define nTRIALS_PER_SIZE 10
+#define WORK_ITERATIONS 3
 
 double total_time[nTRIALS_PER_SIZE];  // times are stored in us
 double process_time[nTRIALS_PER_SIZE];
@@ -13,7 +14,7 @@ double send_time[nTRIALS_PER_SIZE];
 #include "pingack_fixedmsg.decl.h"
 
 #define BIGMSG_SIZE 4096
-#define PE0_NO_SEND 1
+//#define PE0_NO_SEND 1
 
 class PingMsg : public CMessage_PingMsg
 {
@@ -145,14 +146,43 @@ public:
     }
   }
 
+  void do_work(long start, long end, void *result) {
+    long tmp=0;
+    for (long i=start; i<=end; i++) {
+      tmp+=(long)(sqrt(1+cos(i*1.57)));
+    }
+    *(long *)result = tmp + *(long *)result;
+  }
+
   void bigmsg_recv(PingMsg *msg)
   {
     long sum = 0;
     long result = 0;
     double num_ints = BIGMSG_SIZE;
+    double st_time = 0.0;
+    double work_time = 0.0;
     double exp_avg = (num_ints - 1) / 2;
     for (int i = 0; i < num_ints; ++i) {
       sum += msg->payload[i];
+      if(i%6 == 0)
+      {
+#if DEBUG
+        if(CkMyPe()==1+CkNumPes()/2)
+          st_time = CkWallTimer();
+#endif
+        do_work(0, WORK_ITERATIONS, &result);
+#if DEBUG
+        if(CkMyPe()==1+CkNumPes()/2)
+          work_time += CkWallTimer()-st_time;
+#endif
+      }
+    }
+#if DEBUG
+    if(CkMyPe()==1+CkNumPes()/2 && recv_count%40==0)
+      CkPrintf("\nTime of work per int =%lf", work_time);
+#endif
+    if(result<0) {
+      CmiPrintf("\nError in computation!!");
     }
     double calced_avg = sum / num_ints;
     if (calced_avg != exp_avg) {
@@ -177,7 +207,7 @@ public:
       total_time_pe = CkWallTimer() - total_time_pe;
       total_time[trial] = total_time_pe; //Recording total time on PE-0 since it performs roundtrip
       ack_count = 0;
-      CkPrintf("All %d messages of size %d on trial %d OK\n", MSG_COUNT, BIGMSG_SIZE, trial);
+      //CkPrintf("All %d messages of size %d on trial %d OK\n", MSG_COUNT, BIGMSG_SIZE, trial);
       if(++trial == nTRIALS_PER_SIZE || warmUp) {
         trial = 0;
         if(!warmUp) {
