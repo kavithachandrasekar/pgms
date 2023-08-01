@@ -108,7 +108,7 @@ void DiffusionLB::InitLB(const CkLBOptions &opt) {
 #if DEBUG_K
   CkPrintf("\n[PE-%d] nodeFirst = %d", CkMyPe(), nodeFirst);
 #endif
-  ComputeNeighbors();
+  //ComputeNeighbors();
   if(CkMyPe() == nodeFirst) {
     gain_val = NULL;
     obj_arr = NULL;
@@ -136,8 +136,8 @@ void DiffusionLB::InitLB(const CkLBOptions &opt) {
 }
 
 void DiffusionLB::AtSync() {
-#if DEBUG_K
-  CkPrintf("\nIn DiffusionLB::AtSync()\n"); fflush(stdout);
+#if 1//DEBUG_K
+  CkPrintf("\n[PE-%d]In DiffusionLB::AtSync()\n", CkMyPe()); fflush(stdout);
 #endif
 #if CMK_LBDB_ON
   if (!QueryBalanceNow(step()) || CkNumPes() == 1) {
@@ -173,6 +173,7 @@ void DiffusionLB::AtSync() {
     //sendToNeighbors.clear();
     //toSend = 0;
     CkPrintf("\nCkMyPe()=%d, nodeFirst=%d", CkMyPe(), nodeFirst);
+/*
     if(CkMyPe() == nodeFirst) {
       for(int i = 0; i < neighborCount; i++) {
         //Add your neighbors node-id as your neighbor
@@ -180,6 +181,7 @@ void DiffusionLB::AtSync() {
         //  thisProxy[nodes[neighbors[i]]].AddNeighbor(peNodes[nodeFirst]);
       }
     }
+*/
     CkCallback cb(CkIndex_DiffusionLB::PEStarted(), thisProxy[0]);
     contribute(cb); 
   }
@@ -210,23 +212,23 @@ void DiffusionLB::ProcessAtSync()
 {
 #if CMK_LBDB_ON
   start_lb_time = 0;
-#if DEBUG_K
+#if 1//DEBUG_K
   CkPrintf("[%d] ProcessAtSync()", CkMyPe());
 #endif
 
   if(step() == 0) { 
-    toSendLoad.resize(neighborCount);
-    toReceiveLoad.resize(sendToNeighbors.size());
+//    toSendLoad.resize(neighborCount);
+//    toReceiveLoad.resize(sendToNeighbors.size());
 
-    for(int i = 0; i < sendToNeighbors.size(); i++) {
+//    for(int i = 0; i < sendToNeighbors.size(); i++) {
       //neighborPosReceive[sendToNeighbors[i]] = i;
-      toReceiveLoad[i] = 0;
-    }
+//      toReceiveLoad[i] = 0;
+//    }
   }
-  for(int i = 0; i < neighborCount; i++)
-    toSendLoad[i] = 0;
-  for(int i = 0; i < sendToNeighbors.size(); i++)
-    toReceiveLoad[i] = 0;
+//  for(int i = 0; i < neighborCount; i++)
+//    toSendLoad[i] = 0;
+//  for(int i = 0; i < sendToNeighbors.size(); i++)
+//    toReceiveLoad[i] = 0;
 
   if (CkMyPe() == 0) {
     start_lb_time = CkWallTimer();
@@ -528,11 +530,11 @@ bool DiffusionLB::AggregateToSend() {
   return res;
 }
 
-void DiffusionLB::InitializeObjHeap(BaseLB::LDStats *stats, int* obj_arr,int size,
+void DiffusionLB::InitializeObjHeap(BaseLB::LDStats *stats, int* obj_arr,int n,
   int* gain_val) {
-  for(int obj = 0; obj <size; obj++) {
-    obj_heap[obj]=obj_arr[obj];
-    heap_pos[obj_arr[obj]]=obj;
+  for(int i = 0; i < n; i++) {
+    obj_heap[i]=obj_arr[i];
+    heap_pos[obj_arr[i]]=i;
   }
   heapify(obj_heap, ObjCompareOperator(&objs, gain_val), heap_pos);
 }
@@ -544,17 +546,17 @@ void DiffusionLB::PseudoLoadBalancing() {
   double totalOverload = my_load - avgLoadNeighbor;
   avgLoadNeighbor = (avgLoadNeighbor+my_load)/2;
   double totalUnderLoad = 0.0;
-  double tempToSend[neighborCount];
+  double thisIterToSend[neighborCount];
   for(int i = 0 ;i < neighborCount; i++)
-    tempToSend[i] = 0.;
+    thisIterToSend[i] = 0.;
   if(totalOverload > 0)
     for(int i = 0; i < neighborCount; i++) {
-      tempToSend[i] = 0;
-      if(loadNeighbors[i] < (avgLoadNeighbor - threshold) || (CkMyNode()==0 || CkMyNode() == CkNumNodes()-1)) {
-        tempToSend[i] = avgLoadNeighbor - loadNeighbors[i];
+      thisIterToSend[i] = 0;
+      if(loadNeighbors[i] < (avgLoadNeighbor - threshold)) {
+        thisIterToSend[i] = avgLoadNeighbor - loadNeighbors[i];
         totalUnderLoad += avgLoadNeighbor - loadNeighbors[i];
-        DEBUGL(("[PE-%d] iteration %d tempToSend %f avgLoadNeighbor %f loadNeighbors[i] %f to node %d\n",
-                  CkMyPe(), itr, tempToSend[i], avgLoadNeighbor, loadNeighbors[i], nbors[i]));
+        CkPrintf("[PE-%d] iteration %d thisIterToSend %f avgLoadNeighbor %f loadNeighbors[i] %f to node %d\n",
+                CkMyPe(), itr, thisIterToSend[i], avgLoadNeighbor, loadNeighbors[i], nbors[i]);
       }
     }
   if(totalUnderLoad > 0 && totalOverload > 0 && totalUnderLoad > totalOverload)
@@ -563,15 +565,15 @@ void DiffusionLB::PseudoLoadBalancing() {
     totalOverload = totalUnderLoad;
   DEBUGL(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d totalUndeload %f totalOverLoad %f my_loadAfterTransfer %f\n", CkMyPe(), itr, totalUnderLoad, totalOverload, my_loadAfterTransfer));
   for(int i = 0; i < neighborCount; i++) {
-    if(totalOverload > 0 && totalUnderLoad > 0 && tempToSend[i] > 0) {
-      CkPrintf("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d toSend %lf totalToSend %lf\n", CkMyPe(), itr, nbors[i], tempToSend[i], (tempToSend[i]*totalOverload)/totalUnderLoad);
-      tempToSend[i] = (tempToSend[i]*totalOverload)/totalUnderLoad;
-      toSendLoad[i] += tempToSend[i];
+    if(totalOverload > 0 && totalUnderLoad > 0 && thisIterToSend[i] > 0) {
+      CkPrintf("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d toSend %lf totalToSend %lf\n", CkMyPe(), itr, nbors[i], thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad);
+      thisIterToSend[i] *= totalOverload/totalUnderLoad;
+      toSendLoad[i] += thisIterToSend[i];
     }
-    if(my_load - tempToSend[i] < 0)
+    if(my_load - thisIterToSend[i] < 0)
       CkAbort("Get out");
-    my_load -= tempToSend[i];
-    thisProxy[CkNodeFirst(nbors[i])].PseudoLoad(itr, tempToSend[i], CkMyNode());
+    my_load -= thisIterToSend[i];
+    thisProxy[CkNodeFirst(nbors[i])].PseudoLoad(itr, thisIterToSend[i], CkMyNode());
   }
 }
 
@@ -591,15 +593,22 @@ void DiffusionLB::LoadBalancing() {
 //  Iterate over the comm data and for each object, store its comm bytes
 //  to other neighbor nodes and own node.
 
-  vector<vector<int>> objectComms;
-  objectComms.resize(n_objs);
+  //objectComms maintains the comm bytes for each object on this node
+  //with the neighboring node
+  //we also maintain comm within this node and comm bytes outside
+  //(of this node and neighboring nodes)
+  vector<vector<int>> objectComms(n_objs);
+//  objectComms.resize(n_objs);
 
   if(gain_val != NULL)
       delete[] gain_val;
   gain_val = new int[n_objs];
   memset(gain_val, -1, n_objs);
 
+  CkPrintf("\n[PE-%d] n_objs=%d", CkMyPe(), n_objs);
+
   for(int i = 0; i < n_objs; i++) {
+    CkPrintf("\nPE-%d objid= %" PRIu64 ", vrtx id=%d", CkMyPe(), nodeStats->objData[i].objID(), objs[i].getVertexId());
     objectComms[i].resize(neighborCount+1);
     for(int j = 0; j < neighborCount+1; j++)
       objectComms[i][j] = 0;
@@ -609,7 +618,6 @@ void DiffusionLB::LoadBalancing() {
   int obj = 0;
   for(int edge = 0; edge < nodeStats->commData.size(); edge++) {
     LDCommData &commData = nodeStats->commData[edge];
-
     // ensure that the message is not from a processor but from an object
     // and that the type is an object to object message
     if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
@@ -623,8 +631,7 @@ void DiffusionLB::LoadBalancing() {
       //store internal bytes in the last index pos ? -q
       if(fromNode == toNode) {
 //        int pos = neighborPos[toNode];
-        int nborIdx = SELF_IDX;// why would you store your own nborIdx? Can you have comm data of
-//        entirely external comm (where neither to nor from is you? - q
+        int nborIdx = SELF_IDX;// why self id?
         int fromObj = nodeStats->getHash(from);
         int toObj = nodeStats->getHash(to);
         //DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, nodeStats->n_objs));
@@ -650,25 +657,7 @@ void DiffusionLB::LoadBalancing() {
           obj++;
         }
       }
-    } //elstoNode    
-      // TODO: for each msg in object list we can do same as above ?
-      /*else if((!commData.from_proc()) && (commData.recv_type() == LD_OBJLIST_MSG)) {
-        int nobjs, offset;
-        LDObjKey *objs = commData.receiver.get_destObjs(nobjs);
-        McastSrc sender(nobjs, commData.messages, commData.bytes);
-
-        from = stats->getHash(commData.sender);
-        offset = vertices[from].mcastToList.size();
-
-        for(int i = 0; i < nobjs; i++) {
-          int idx = stats->getHash(objs[i]);
-          CmiAssert(idx != -1);
-          vertices[idx].mcastFromList.push_back(McastDest(from, offset,
-          commData.messages, commData.bytes));
-          sender.destList.push_back(idx);
-        }
-        vertices[from].mcastToList.push_back(sender);
-      }*/
+    }
     } // end for
 
     // calculate the gain value, initialize the heap.
@@ -687,29 +676,36 @@ void DiffusionLB::LoadBalancing() {
     }
 
     if(actualSend > 0) {
+
       if(obj_arr != NULL)
         delete[] obj_arr;
+
       obj_arr = new int[n_objs];
+
       for(int i = 0; i < n_objs; i++) {
-        int sum = 0;
-        vector<int> bytes = objectComms[i];
-        int nborIdx = SELF_IDX;//Fix these - q
+        int sum_bytes = 0;
+        //comm bytes with all neighbors
+        vector<int> comm_w_nbors = objectComms[i];
         obj_arr[i] = i;
-        for(int j = 0; j < bytes.size(); j++) {
-            sum += objectComms[i][j];
-        }
-        gain_val[i] = 2*objectComms[i][nborIdx] - sum;
+        //compute the sume of bytes of all comms for this obj
+        for(int j = 0; j < comm_w_nbors.size(); j++)
+            sum_bytes += comm_w_nbors[j];
+
+        //This gives higher gain value to objects that have within node communication
+        gain_val[i] = 2*objectComms[i][SELF_IDX] - sum_bytes;
       }
 
       // T1: create a heap based on gain values, and its position also.
       obj_heap.clear();
       heap_pos.clear();
-      objs.clear();
+//      objs.clear();
 
       obj_heap.resize(n_objs);
       heap_pos.resize(n_objs);
-      objs.resize(n_objs);
+ //     objs.resize(n_objs);
+      std::vector<Vertex> objs_cpy = objs;
 
+      //Creating a minheap of objects based on gain value
       InitializeObjHeap(nodeStats, obj_arr, n_objs, gain_val); 
 
       // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
@@ -717,16 +713,24 @@ void DiffusionLB::LoadBalancing() {
       double totalSent = 0;
       int counter = 0;
       CkPrintf("\n[PE-%d] my_loadAfterTransfer = %lf, actualSend=%d\n", CkMyPe(),my_loadAfterTransfer,actualSend);
+
+      //return;
       while(my_loadAfterTransfer > 0 && actualSend > 0) {
         counter++;
-        v_id = heap_pop(obj_heap, ObjCompareOperator(&objs, gain_val), heap_pos);
+        //pop the object id with the least gain (i.e least internal comm compared to ext comm)
+
         if(CkMyPe()==0)
-          CkPrintf("\n On PE-%d, v_id = %d", CkMyPe(), v_id);
+          for(int ii=0;ii<n_objs;ii++)
+            CkPrintf("\ngain_val[%d] = %d", ii, gain_val[ii]);
+
+        v_id = heap_pop(obj_heap, ObjCompareOperator(&objs, gain_val), heap_pos);
+        
+        CkPrintf("\n On PE-%d, popped v_id = %d", CkMyPe(), v_id);
    
         /*If the heap becomes empty*/
         if(v_id==-1)          
             break;
-        double currLoad = objs[v_id].getVertexLoad();
+        double currLoad = objs_cpy[v_id].getVertexLoad();
 #if 0
         if(!objs[v_id].isMigratable()) {
           CkPrintf("not migratable \n");
@@ -736,7 +740,7 @@ void DiffusionLB::LoadBalancing() {
         vector<int> comm = objectComms[v_id];
         int maxComm = 0;
         int maxi = -1;
-        
+#if 1
         // TODO: Get the object vs communication cost ratio and work accordingly.
         for(int i = 0 ; i < neighborCount; i++) {
             
@@ -748,13 +752,15 @@ void DiffusionLB::LoadBalancing() {
             }
           }
         }
+#endif
 
-        if(CkMyPe()==0)
+//        if(CkMyPe()==0)
           CkPrintf("\n[PE-%d] maxi = %d", CkMyPe(), maxi);
           
         if(maxi != -1) {
+#if 1
           migrates++;
-          int pos = neighborPos[peNodes[nodeFirst]];
+          int pos = neighborPos[CkNodeOf(nodeFirst)];
           internalAfter -= comm[pos];
           internalAfter += comm[maxi];
           externalAfter += comm[pos];
@@ -768,9 +774,11 @@ void DiffusionLB::LoadBalancing() {
           totalSent += currLoad;
           objs[v_id].setCurrPe(-1); 
           // object Id changes to relative position in PE when passed to function getPENumber.
-          int objId = objs[v_id].getVertexId();
-          if(objId != v_id)
+          int objId = objs_cpy[v_id].getVertexId();
+          if(objId != v_id) {
+              CkPrintf("\n%d!=%d", objId, v_id);fflush(stdout);
               CmiAbort("objectIds dont match \n");
+          }
           int pe = GetPENumber(objId);
           migratedFrom[pe]++;
           int initPE = nodeFirst + pe;
@@ -779,18 +787,19 @@ void DiffusionLB::LoadBalancing() {
           CkPrintf("[%d] GRD: Load Balancing object load %f to node %d and from pe %d and objID %d\n", CkMyPe(), currLoad, node, initPE, objId);
           // TODO: Change this to directly send the load to zeroth PE
           //thisProxy[nodes[node]].LoadTransfer(currLoad, initPE, objId);
-          thisProxy[CkMyNode()].LoadMetaInfo(nodeStats->objData[v_id].handle, currLoad);
-          thisProxy[initPE].LoadReceived(objId, nodes[node]);
+          thisProxy[CkNodeFirst(CkMyNode())].LoadMetaInfo(nodeStats->objData[v_id].handle, currLoad);
+          thisProxy[initPE].LoadReceived(objId, CkNodeFirst(node));
           my_loadAfterTransfer -= currLoad;
           int myPos = 0;//neighborPos[peNodes[nodeFirst]];
           loadNeighbors[myPos] -= currLoad;
           loadNeighbors[maxi] += currLoad;   
+#endif
         }
         else {
           CkPrintf("[%d] maxi is negative currLoad %f \n", CkMyPe(), currLoad);
         } 
       } //end of while
-      CkPrintf("[%d] GRD: Load Balancing total load sent during LoadBalancing %f actualSend %d myloadB %f v_id %d counter %d nobjs %d \n",
+      CkPrintf("[%d] GRD: Load Balancing total load sent during LoadBalancing %f actualSend %d myloadB %f v_id %d counter %d nobjs %lu \n",
           CkMyPe(), totalSent, actualSend, my_loadAfterTransfer, v_id, counter, nodeStats->objData.size());
       for (int i = 0; i < neighborCount; i++) {
         CkPrintf("[%d] GRD: Load Balancing total load sent during LoadBalancing toSendLoad %f node %d\n", CkMyPe(), toSendLoad[i], nbors[i]);
@@ -927,7 +936,7 @@ void DiffusionLB::LoadReceived(int objId, int fromPE) {
   migrateInfo.push_back(migrateMe);
   total_migrates++;
   entered = false;
-  DEBUGR(("[%d] GRD Load Received objId %d  with load %f and toPE %d total_migrates %d total_migratesActual %d migrates_expected %d migrates_completed %d\n", CkMyPe(), objId, myStats->objData[objId].wallTime, fromPE, total_migrates, total_migratesActual, migrates_expected, migrates_completed));
+  CkPrintf("[%d] GRD Load Received objId %d  with load %f and toPE %d total_migrates %d total_migratesActual %d migrates_expected %d migrates_completed %d\n", CkMyPe(), objId, myStats->objData[objId].wallTime, fromPE, total_migrates, total_migratesActual, migrates_expected, migrates_completed);
 }
 
 void DiffusionLB::MigrationEnded() {
@@ -961,10 +970,11 @@ void DiffusionLB::MigrationEnded() {
     }
 }
 
+//What does Cascading migrations do?
 void DiffusionLB::CascadingMigration(LDObjHandle h, double load) {
     double threshold = THRESHOLD*avgLoadNeighbor/100.0;
     int minNode = -1;
-    int myPos = neighborPos[peNodes[nodeFirst]];
+    int myPos = neighborPos[CkNodeOf(nodeFirst)];
     if(actualSend > 0) {
         double minLoad;
         // Send to max underloaded node
@@ -982,8 +992,8 @@ void DiffusionLB::CascadingMigration(LDObjHandle h, double load) {
                 balanced[minNode] = false;
                 actualSend--; 
             }
-            thisProxy[nodes[nbors[minNode]]].LoadMetaInfo(h, load);
-	        lbmgr->Migrate(h,nodes[nbors[minNode]]);
+            thisProxy[CkNodeFirst(nbors[minNode])].LoadMetaInfo(h, load);
+	        lbmgr->Migrate(h,CkNodeFirst(nbors[minNode]));
         }
             
     }
@@ -1004,6 +1014,7 @@ void DiffusionLB::CascadingMigration(LDObjHandle h, double load) {
     }
 }
 
+//What does this method do? - find out
 void DiffusionLB::LoadMetaInfo(LDObjHandle h, double load) {
     int idx = FindObjectHandle(h);
     if(idx == -1) {
@@ -1027,7 +1038,7 @@ void DiffusionLB::Migrated(LDObjHandle h, int waitBarrier)
 }
 
 void DiffusionLB::MigratedHelper(LDObjHandle h, int waitBarrier) {
-    DEBUGR(("[%d] GRD Migrated migrates_completed %d migrates_expected %d \n", CkMyPe(), migrates_completed, migrates_expected));
+    CkPrintf("[%d] GRD Migrated migrates_completed %d migrates_expected %d \n", CkMyPe(), migrates_completed, migrates_expected);
     int idx = FindObjectHandle(h);
     if(idx == -1) {
         objectHandles.push_back(h);
@@ -1263,6 +1274,7 @@ void DiffusionLB::BuildStats()
             nodeStats->from_proc[nobj] = nodeStats->to_proc[nobj] = start + pe;
             nodeStats->objData[nobj] = msg->objData[i];
             LDObjData &oData = nodeStats->objData[nobj];
+            CkPrintf("\n[PE-%d]Adding vertex id %d", CkMyPe(), nobj);
             objs[nobj] = Vertex(nobj, oData.wallTime, nodeStats->objData[nobj].migratable, nodeStats->from_proc[nobj]);
             my_load += msg->objData[i].wallTime;
             loadPE[pe] += msg->objData[i].wallTime;

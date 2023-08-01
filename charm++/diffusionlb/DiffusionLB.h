@@ -117,8 +117,8 @@ private:
     int nodeFirst;
     int nodeSize;
     int numNodes;
-    std::unordered_map<int, int> peNodes;
-    std::vector<int> nodes;
+//    std::unordered_map<int, int> peNodes;
+//    std::vector<int> nodes;
 
     int actualSend;
     std::vector<bool> balanced;

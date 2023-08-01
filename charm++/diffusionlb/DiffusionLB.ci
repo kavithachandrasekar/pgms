@@ -65,7 +65,7 @@ module DiffusionLB {
             serial "Send loadInfo" {
                 if(CkMyPe()==0)
                   CkPrintf("\n---------------------------------------------------------------------------------------------\n");
-                CkPrintf("\n[Node-%d], sendToNeighbors.size = %lu", CkMyNode(), neighborCount);
+//                CkPrintf("\n[Node-%d], sendToNeighbors.size = %lu", CkMyNode(), neighborCount);
                 for(int i = 0; i < neighborCount; i++) {
                     CkPrintf("\n[%d] itr-%d Sending load info to node-%d \n", CkMyPe(), itr, sendToNeighbors[i]);
                     thisProxy[CkNodeFirst(sendToNeighbors[i])].ReceiveLoadInfo(itr, my_load, CkMyNode());
@@ -105,6 +105,7 @@ module DiffusionLB {
                     int pos = findNborIdx(node);
                     CkPrintf("\n[PE-%d]pos = %d", CkMyPe(), pos);
                     if(pos < 0 || pos >= CkNumNodes())
+                      CkPrintf("\nError in pos %d", pos);
                     toReceiveLoad[pos] += load;
                 }
             }
