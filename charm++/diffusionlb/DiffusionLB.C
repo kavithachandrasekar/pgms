@@ -1,3 +1,18 @@
+/** \file DiffusionLB.C
+ *  Authors: Monika G
+ *           Kavitha C
+ *
+ */
+
+/**
+ *  1. Each node has a list of neighbors (bi-directional) (either topology-based
+ *     or other mechanisms like k highest communicating nodes)
+ *  2. Over multiple iterations, each node diffuses load to neighbor nodes
+ *     by only passing load tokens (not actual objects)
+ *  3. Once the diffusion iterations converge (load imbalance threshold is reached),
+ *     actual load balancing is done by taking object communication into account
+ */
+
 #include "DiffusionLB.h"
 
 #include "ck.h"
