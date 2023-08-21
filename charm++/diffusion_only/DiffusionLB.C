@@ -14,9 +14,9 @@
 
 #define DEBUGF(x) CmiPrintf x;
 #define DEBUGL(x) /*CmiPrintf x;*/
-#define NUM_NEIGHBORS 4
+#define NUM_NEIGHBORS 10
 #define N 20 //node dimension
-#define ITERATIONS 10
+#define ITERATIONS 4
 
 #define THRESHOLD 2
 
@@ -33,12 +33,14 @@ class Main : public CBase_Main {
       array.AtSync();
     }
     void done() {
-      CkPrintf("\nDONE");
+      CkPrintf("\nDONE");fflush(stdout);
       CkExit(0);
     }
 };
 
-DiffusionLB::DiffusionLB(){done = -1;}
+DiffusionLB::DiffusionLB(){
+  done = -1;
+  round = 0;}
 DiffusionLB::~DiffusionLB() { }
 
 void DiffusionLB::AtSync() {
@@ -51,20 +53,89 @@ void DiffusionLB::AtSync() {
   CkCallback cba(CkReductionTarget(DiffusionLB, AvgLoad), thisProxy(0,0));
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
 
+  int kthNbor = (N*N)/NUM_NEIGHBORS;
+
 
   sendToNeighbors.reserve(NUM_NEIGHBORS);
   //Create 2d neighbors
+#if 0
   if(thisIndex.x > 0) sendToNeighbors.push_back(getNodeId(thisIndex.x-1, thisIndex.y));
   if(thisIndex.x < N-1) sendToNeighbors.push_back(getNodeId(thisIndex.x+1, thisIndex.y));
   if(thisIndex.y > 0) sendToNeighbors.push_back(getNodeId(thisIndex.x, thisIndex.y-1));
   if(thisIndex.y < N-1) sendToNeighbors.push_back(getNodeId(thisIndex.x, thisIndex.y+1));
-  neighborCount = sendToNeighbors.size();
-  loadNeighbors.resize(neighborCount);
-  toSendLoad.resize(neighborCount);
-  toReceiveLoad.resize(neighborCount);
+#endif
+  int do_again = 1;
+  CkCallback cb(CkReductionTarget(DiffusionLB, findNBors), thisProxy);
+  contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+}
 
-  CkCallback cb(CkIndex_DiffusionLB::startDiffusion(), thisProxy);
-  contribute(cb);
+void DiffusionLB::findNBors(int do_again) {
+  requests_sent = 0;
+  if(!do_again || round == 100) {
+    neighborCount = sendToNeighbors.size();
+    std::string nbor_nodes;
+    for(int i = 0; i < neighborCount; i++) {
+      nbor_nodes += "node-"+ std::to_string(sendToNeighbors[i])+", ";
+    }
+    DEBUGL(("[%d,%d] node-%d with nbors %s\n", thisIndex.x, thisIndex.y, getNodeId(thisIndex.x, thisIndex.y), nbor_nodes.c_str()));
+
+    loadNeighbors.resize(neighborCount);
+    toSendLoad.resize(neighborCount);
+    toReceiveLoad.resize(neighborCount);
+
+    CkCallback cb(CkIndex_DiffusionLB::startDiffusion(), thisProxy);
+    contribute(cb);
+    return;
+  }
+  int potentialNb = 0;
+  int myNodeId = getNodeId(thisIndex.x, thisIndex.y);
+  int nborsNeeded = (NUM_NEIGHBORS - sendToNeighbors.size())/2;
+  if(nborsNeeded > 0) {
+    while(potentialNb < nborsNeeded) {
+      int potentialNbor = rand() % (N*N);
+      if(myNodeId != potentialNbor &&
+          std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end()) {
+        requests_sent++;
+        thisProxy(potentialNbor/N,potentialNbor%N).proposeNbor(myNodeId);
+        potentialNb++;
+      }
+    }
+  }
+  else {
+    int do_again = 0;
+    CkCallback cb(CkReductionTarget(DiffusionLB, findNBors), thisProxy);
+    contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+  }
+}
+
+void DiffusionLB::proposeNbor(int nborId) {
+  int agree = 0;
+  if((NUM_NEIGHBORS-sendToNeighbors.size())-requests_sent > 0 && sendToNeighbors.size() < NUM_NEIGHBORS &&
+      std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
+    agree = 1;
+    sendToNeighbors.push_back(nborId);
+    DEBUGL(("\nNode-%d, round =%d Agreeing and adding %d ", getNodeId(thisIndex.x, thisIndex.y), round, nborId));
+  } else {
+    DEBUGL(("\nNode-%d, round =%d Rejecting %d ", getNodeId(thisIndex.x, thisIndex.y), round, nborId));
+  }
+  thisProxy(nborId/N,nborId%N).okayNbor(agree, getNodeId(thisIndex.x, thisIndex.y));
+}
+
+void DiffusionLB::okayNbor(int agree, int nborId) {
+  if(sendToNeighbors.size() < NUM_NEIGHBORS && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
+    DEBUGL(("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor", getNodeId(thisIndex.x, thisIndex.y), round, nborId));
+    sendToNeighbors.push_back(nborId);
+  }
+
+  requests_sent--;
+  if(requests_sent > 0) return;
+
+  int do_again = 0;
+  if(sendToNeighbors.size()<NUM_NEIGHBORS)
+    do_again = 1;
+  round++;
+  CkCallback cb(CkReductionTarget(DiffusionLB, findNBors), thisProxy);
+  contribute(sizeof(int), &do_again, CkReduction::max_int, cb); 
 }
 
 void DiffusionLB::startDiffusion(){

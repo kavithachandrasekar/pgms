@@ -12,6 +12,9 @@ mainmodule DiffusionLB {
     entry [reductiontarget] void startDiffusion();
     entry [reductiontarget] void MaxLoad(double val);
     entry [reductiontarget] void AvgLoad(double val);
+    entry [reductiontarget] void findNBors(int do_again);
+    entry void proposeNbor(int nborId);
+    entry void okayNbor(int agree, int nborId);
     entry void AtSync(void);
     entry void ReceiveLoadInfo(int itr, double load, int node);
     entry void PseudoLoad(int itr, double load, int node); 

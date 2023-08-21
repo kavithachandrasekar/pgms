@@ -17,6 +17,9 @@ public:
     void LoadReceived(int objId, int fromPE);
     void MaxLoad(double val);
     void AvgLoad(double val);
+    void findNBors(int do_again);
+    void proposeNbor(int nborId); 
+    void okayNbor(int agree, int nborId);
 
 private:
     // aggregate load received
@@ -25,7 +28,9 @@ private:
     int done;
     int statsReceived;
     int loadReceived;
-    
+    int round;
+    int requests_sent;
+
     std::vector<double> loadNeighbors;
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
     int neighborCount;
