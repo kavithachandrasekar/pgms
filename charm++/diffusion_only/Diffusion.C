@@ -22,7 +22,7 @@
 #define THRESHOLD 2
 
 #define getNodeId(x,y, NY) x * NY + y
-#define getX(node, NY) node/NY
+#define getX(node, NY) floor(node/NY)
 #define getY(node, NY) node%NY
 
 using std::vector;
@@ -120,7 +120,7 @@ void Diffusion::findNBors(int do_again) {
       if(myNodeId != potentialNbor &&
           std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end()) {
         requests_sent++;
-        thisProxy(potentialNbor/NY,potentialNbor%NY).proposeNbor(myNodeId);
+        thisProxy(getX(potentialNbor,NY),getY(potentialNbor,NY)).proposeNbor(myNodeId);
         potentialNb++;
       }
     }
@@ -142,7 +142,7 @@ void Diffusion::proposeNbor(int nborId) {
   } else {
     DEBUGL(("\nNode-%d, round =%d Rejecting %d ", getNodeId(thisIndex.x, thisIndex.y,NY), round, nborId));
   }
-  thisProxy(nborId/NY,nborId%NY).okayNbor(agree, getNodeId(thisIndex.x, thisIndex.y,NY));
+  thisProxy(getX(nborId,NY), getY(nborId,NY)).okayNbor(agree, getNodeId(thisIndex.x, thisIndex.y,NY));
 }
 
 void Diffusion::okayNbor(int agree, int nborId) {
@@ -249,7 +249,7 @@ void Diffusion::PseudoLoadBalancing() {
       CkAbort("Get out");
     my_load -= thisIterToSend[i];
     int nbor_node = sendToNeighbors[i];
-    thisProxy(floor(nbor_node/NY), nbor_node%NY).PseudoLoad(itr, thisIterToSend[i], getNodeId(thisIndex.x, thisIndex.y, NY));
+    thisProxy(getX(nbor_node,NY), getY(nbor_node,NY)).PseudoLoad(itr, thisIterToSend[i], getNodeId(thisIndex.x, thisIndex.y, NY));
   }
 }
 

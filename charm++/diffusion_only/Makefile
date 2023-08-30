@@ -12,9 +12,6 @@ Diffusion: $(OBJS)
 Diffusion.decl.h: Diffusion.ci
 	$(CHARMC)  Diffusion.ci
 
-libdiffusion.a: Diffusion.o
-	$(CHARMC) Diffusion.o -o libdiffusion.a -language charm++
-
 Diffusion.o: Diffusion.C Diffusion.decl.h
 	$(CHARMC) -c Diffusion.C
 

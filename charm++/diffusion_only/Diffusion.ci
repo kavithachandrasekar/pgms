@@ -33,7 +33,7 @@ module Diffusion {
         // Send its load
         serial "Send loadInfo" {
           for(int i = 0; i < neighborCount; i++)
-            thisProxy(floor(sendToNeighbors[i]/NY), sendToNeighbors[i]%NY).ReceiveLoadInfo(itr, my_load, getNodeId(thisIndex.x, thisIndex.y,NY));
+            thisProxy(getX(sendToNeighbors[i],NY), getY(sendToNeighbors[i],NY)).ReceiveLoadInfo(itr, my_load, getNodeId(thisIndex.x, thisIndex.y,NY));
         }
            
           // Wait for all its neighbors load
