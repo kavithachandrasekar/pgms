@@ -5,6 +5,7 @@
 #include <vector>
 #include <unordered_map>
 
+#define STANDALONE_DIFF
 #include "Diffusion.decl.h"
 
 class Diffusion : public CBase_Diffusion {

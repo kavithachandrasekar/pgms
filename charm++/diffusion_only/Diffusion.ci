@@ -1,4 +1,9 @@
+#define STANDALONE_DIFF
+#ifdef STANDALONE_DIFF
+mainmodule Diffusion {
+#else
 module Diffusion {
+#endif
 
 #ifdef STANDALONE_DIFF
   readonly CProxy_Main mainProxy;

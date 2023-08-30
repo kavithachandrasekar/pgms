@@ -25,8 +25,6 @@
 #define getX(node, NY) node/NY
 #define getY(node, NY) node%NY
 
-#define STANDALONE_DIFF
-
 using std::vector;
 
 #ifdef STANDALONE_DIFF
@@ -38,7 +36,9 @@ class Main : public CBase_Main {
       mainProxy = thisProxy;
       // Create new array of worker chares
       int NX, NY;
-      NX = NY = 20;
+//      NX = NY = 20;
+      NX = 25;
+      NY = 16;
       CProxy_Diffusion array = CProxy_Diffusion::ckNew(NX, NY, NX, NY);
       array.AtSync();
     }
