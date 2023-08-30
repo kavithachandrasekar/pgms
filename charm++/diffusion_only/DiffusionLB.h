@@ -5,14 +5,15 @@
 #include <vector>
 #include <unordered_map>
 
-#include "DiffusionLB.decl.h"
+#include "Diffusion.decl.h"
 
-class DiffusionLB : public CBase_DiffusionLB {
-    DiffusionLB_SDAG_CODE
+class Diffusion : public CBase_Diffusion {
+    Diffusion_SDAG_CODE
 public:
-    DiffusionLB();
-    ~DiffusionLB();
+    Diffusion(int nx, int ny);
+    ~Diffusion();
     void AtSync(void);
+    void setNeighbors(std::vector<int> neighbors, double load);
     void startDiffusion();
     void LoadReceived(int objId, int fromPE);
     void MaxLoad(double val);
@@ -37,6 +38,7 @@ private:
     std::vector<double> toSendLoad;
     std::vector<double> toReceiveLoad;
 
+    int NX, NY;
     double my_load;
     double my_loadAfterTransfer;
     double avgLoadNeighbor;
@@ -45,7 +47,7 @@ private:
     double  average();
     double averagePE();
     int findNborIdx(int node);
-    int getNodeId(int x, int y);
+//    int getNodeId(int x, int y);
     void PseudoLoadBalancing();
 };
 

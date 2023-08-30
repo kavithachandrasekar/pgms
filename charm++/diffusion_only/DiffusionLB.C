@@ -1,4 +1,4 @@
-/** \file DiffusionLB.C
+/** \file Diffusion.C
  *  Authors: Monika G
  *           Kavitha C
  *
@@ -10,18 +10,26 @@
  *     by only passing load values
  */
 
-#include "DiffusionLB.h"
+#include "Diffusion.h"
 
 #define DEBUGF(x) CmiPrintf x;
 #define DEBUGL(x) /*CmiPrintf x;*/
-#define NUM_NEIGHBORS 10
-#define N 20 //node dimension
-#define ITERATIONS 4
+#define NUM_NEIGHBORS 4
+//#define NX 25 //node dimension
+//#define NY 16
+#define ITERATIONS 24
 
 #define THRESHOLD 2
 
+#define getNodeId(x,y, NY) x * NY + y
+#define getX(node, NY) node/NY
+#define getY(node, NY) node%NY
+
+#define STANDALONE_DIFF
+
 using std::vector;
 
+#ifdef STANDALONE_DIFF
 /*readonly*/ CProxy_Main mainProxy;
 
 class Main : public CBase_Main {
@@ -29,7 +37,9 @@ class Main : public CBase_Main {
     Main(CkArgMsg* m) {
       mainProxy = thisProxy;
       // Create new array of worker chares
-      CProxy_DiffusionLB array = CProxy_DiffusionLB::ckNew(N, N);
+      int NX, NY;
+      NX = NY = 20;
+      CProxy_Diffusion array = CProxy_Diffusion::ckNew(NX, NY, NX, NY);
       array.AtSync();
     }
     void done() {
@@ -37,24 +47,25 @@ class Main : public CBase_Main {
       CkExit(0);
     }
 };
+#endif
 
-DiffusionLB::DiffusionLB(){
+Diffusion::Diffusion(int nx, int ny){
+  NX = nx;
+  NY = ny;
   done = -1;
   round = 0;}
-DiffusionLB::~DiffusionLB() { }
 
-void DiffusionLB::AtSync() {
+Diffusion::~Diffusion() { }
+
+void Diffusion::AtSync() {
   my_load = 1.0;
   if(thisIndex.x % 2 == 0 && thisIndex.y % 3 ==0)
     my_load *= 20.0;
 
-  CkCallback cbm(CkReductionTarget(DiffusionLB, MaxLoad), thisProxy(0,0));
+  CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0,0));
   contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
-  CkCallback cba(CkReductionTarget(DiffusionLB, AvgLoad), thisProxy(0,0));
+  CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy(0,0));
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
-
-  int kthNbor = (N*N)/NUM_NEIGHBORS;
-
 
   sendToNeighbors.reserve(NUM_NEIGHBORS);
   //Create 2d neighbors
@@ -65,11 +76,24 @@ void DiffusionLB::AtSync() {
   if(thisIndex.y < N-1) sendToNeighbors.push_back(getNodeId(thisIndex.x, thisIndex.y+1));
 #endif
   int do_again = 1;
-  CkCallback cb(CkReductionTarget(DiffusionLB, findNBors), thisProxy);
+  CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
 }
 
-void DiffusionLB::findNBors(int do_again) {
+void Diffusion::setNeighbors(std::vector<int> nbors, double load) {
+  my_load = load;
+  neighborCount = nbors.size();
+  sendToNeighbors = nbors;
+  loadNeighbors.resize(neighborCount);
+  toSendLoad.resize(neighborCount);
+  toReceiveLoad.resize(neighborCount);
+
+  CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
+  contribute(cb);
+
+}
+
+void Diffusion::findNBors(int do_again) {
   requests_sent = 0;
   if(!do_again || round == 100) {
     neighborCount = sendToNeighbors.size();
@@ -77,53 +101,53 @@ void DiffusionLB::findNBors(int do_again) {
     for(int i = 0; i < neighborCount; i++) {
       nbor_nodes += "node-"+ std::to_string(sendToNeighbors[i])+", ";
     }
-    DEBUGL(("[%d,%d] node-%d with nbors %s\n", thisIndex.x, thisIndex.y, getNodeId(thisIndex.x, thisIndex.y), nbor_nodes.c_str()));
+    DEBUGL(("[%d,%d] node-%d with nbors %s\n", thisIndex.x, thisIndex.y, getNodeId(thisIndex.x, thisIndex.y,NY), nbor_nodes.c_str()));
 
     loadNeighbors.resize(neighborCount);
     toSendLoad.resize(neighborCount);
     toReceiveLoad.resize(neighborCount);
 
-    CkCallback cb(CkIndex_DiffusionLB::startDiffusion(), thisProxy);
+    CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
     contribute(cb);
     return;
   }
   int potentialNb = 0;
-  int myNodeId = getNodeId(thisIndex.x, thisIndex.y);
+  int myNodeId = getNodeId(thisIndex.x, thisIndex.y,NY);
   int nborsNeeded = (NUM_NEIGHBORS - sendToNeighbors.size())/2;
   if(nborsNeeded > 0) {
     while(potentialNb < nborsNeeded) {
-      int potentialNbor = rand() % (N*N);
+      int potentialNbor = rand() % (NX*NY);
       if(myNodeId != potentialNbor &&
           std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end()) {
         requests_sent++;
-        thisProxy(potentialNbor/N,potentialNbor%N).proposeNbor(myNodeId);
+        thisProxy(potentialNbor/NY,potentialNbor%NY).proposeNbor(myNodeId);
         potentialNb++;
       }
     }
   }
   else {
     int do_again = 0;
-    CkCallback cb(CkReductionTarget(DiffusionLB, findNBors), thisProxy);
+    CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
     contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
   }
 }
 
-void DiffusionLB::proposeNbor(int nborId) {
+void Diffusion::proposeNbor(int nborId) {
   int agree = 0;
   if((NUM_NEIGHBORS-sendToNeighbors.size())-requests_sent > 0 && sendToNeighbors.size() < NUM_NEIGHBORS &&
       std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
     agree = 1;
     sendToNeighbors.push_back(nborId);
-    DEBUGL(("\nNode-%d, round =%d Agreeing and adding %d ", getNodeId(thisIndex.x, thisIndex.y), round, nborId));
+    DEBUGL(("\nNode-%d, round =%d Agreeing and adding %d ", getNodeId(thisIndex.x, thisIndex.y,NY), round, nborId));
   } else {
-    DEBUGL(("\nNode-%d, round =%d Rejecting %d ", getNodeId(thisIndex.x, thisIndex.y), round, nborId));
+    DEBUGL(("\nNode-%d, round =%d Rejecting %d ", getNodeId(thisIndex.x, thisIndex.y,NY), round, nborId));
   }
-  thisProxy(nborId/N,nborId%N).okayNbor(agree, getNodeId(thisIndex.x, thisIndex.y));
+  thisProxy(nborId/NY,nborId%NY).okayNbor(agree, getNodeId(thisIndex.x, thisIndex.y,NY));
 }
 
-void DiffusionLB::okayNbor(int agree, int nborId) {
+void Diffusion::okayNbor(int agree, int nborId) {
   if(sendToNeighbors.size() < NUM_NEIGHBORS && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
-    DEBUGL(("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor", getNodeId(thisIndex.x, thisIndex.y), round, nborId));
+    DEBUGL(("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor", getNodeId(thisIndex.x, thisIndex.y,NY), round, nborId));
     sendToNeighbors.push_back(nborId);
   }
 
@@ -134,15 +158,15 @@ void DiffusionLB::okayNbor(int agree, int nborId) {
   if(sendToNeighbors.size()<NUM_NEIGHBORS)
     do_again = 1;
   round++;
-  CkCallback cb(CkReductionTarget(DiffusionLB, findNBors), thisProxy);
+  CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb); 
 }
 
-void DiffusionLB::startDiffusion(){
+void Diffusion::startDiffusion(){
   thisProxy[thisIndex].iterate();
 }
 
-int DiffusionLB::findNborIdx(int node) {
+int Diffusion::findNborIdx(int node) {
   for(int i=0;i<neighborCount;i++)
     if(sendToNeighbors[i] == node)
       return i;
@@ -151,12 +175,12 @@ int DiffusionLB::findNborIdx(int node) {
   CkExit(0);
   return -1;
 }
-
-int DiffusionLB::getNodeId(int x, int y) {
-  return x*N+y;
+/*
+int Diffusion::getNodeId(int x, int y) {
+  return x*NY+y;
 }
-
-double DiffusionLB::average() {
+*/
+double Diffusion::average() {
   double sum = 0;
   for(int i = 0; i < neighborCount; i++) {
     sum += loadNeighbors[i];
@@ -165,7 +189,7 @@ double DiffusionLB::average() {
   return (sum/neighborCount);
 }
 
-bool DiffusionLB::AggregateToSend() {
+bool Diffusion::AggregateToSend() {
   bool res = false;
   for(int i = 0; i < neighborCount; i++) {
     toSendLoad[i] -= toReceiveLoad[i];
@@ -175,18 +199,18 @@ bool DiffusionLB::AggregateToSend() {
   return res;
 }
 
-void DiffusionLB::MaxLoad(double val) {
+void Diffusion::MaxLoad(double val) {
   DEBUGF(("\nMax PE load = %lf", val));
 }
 
-void DiffusionLB::AvgLoad(double val) {
+void Diffusion::AvgLoad(double val) {
   done++;
-  DEBUGF(("\nAvg PE load = %lf", val/(N*N)));
+  DEBUGF(("\nAvg PE load = %lf", val/(NX*NY)));
   if(done == 1)
-    mainProxy.done();
+    CkExit(0);//mainProxy.done();
 }
 
-void DiffusionLB::PseudoLoadBalancing() {
+void Diffusion::PseudoLoadBalancing() {
   std::string nbor_nodes_load = " ";
   for(int i = 0; i < neighborCount; i++) {
     nbor_nodes_load += " node-"+ std::to_string(sendToNeighbors[i])+"'s load= "+std::to_string(loadNeighbors[i]);
@@ -225,9 +249,9 @@ void DiffusionLB::PseudoLoadBalancing() {
       CkAbort("Get out");
     my_load -= thisIterToSend[i];
     int nbor_node = sendToNeighbors[i];
-    thisProxy(floor(nbor_node/N), nbor_node%N).PseudoLoad(itr, thisIterToSend[i], getNodeId(thisIndex.x, thisIndex.y));
+    thisProxy(floor(nbor_node/NY), nbor_node%NY).PseudoLoad(itr, thisIterToSend[i], getNodeId(thisIndex.x, thisIndex.y, NY));
   }
 }
 
-#include "DiffusionLB.def.h"
+#include "Diffusion.def.h"
 

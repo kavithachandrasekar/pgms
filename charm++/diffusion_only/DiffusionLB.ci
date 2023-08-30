@@ -1,18 +1,21 @@
-mainmodule DiffusionLB {
+module Diffusion {
 
+#ifdef STANDALONE_DIFF
   readonly CProxy_Main mainProxy;
 
   mainchare Main {
     entry Main(CkArgMsg *m);
     entry [reductiontarget] void done();
   };
+#endif
 
-  array [2D] DiffusionLB {
-    entry DiffusionLB();
+  array [2D] Diffusion {
+    entry Diffusion(int nx, int ny);
     entry [reductiontarget] void startDiffusion();
     entry [reductiontarget] void MaxLoad(double val);
     entry [reductiontarget] void AvgLoad(double val);
     entry [reductiontarget] void findNBors(int do_again);
+    entry void setNeighbors(std::vector<int> neighbors, double load);
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);
     entry void AtSync(void);
@@ -25,7 +28,7 @@ mainmodule DiffusionLB {
         // Send its load
         serial "Send loadInfo" {
           for(int i = 0; i < neighborCount; i++)
-            thisProxy(floor(sendToNeighbors[i]/N), sendToNeighbors[i]%N).ReceiveLoadInfo(itr, my_load, getNodeId(thisIndex.x, thisIndex.y));
+            thisProxy(floor(sendToNeighbors[i]/NY), sendToNeighbors[i]%NY).ReceiveLoadInfo(itr, my_load, getNodeId(thisIndex.x, thisIndex.y,NY));
         }
            
           // Wait for all its neighbors load
@@ -64,9 +67,9 @@ mainmodule DiffusionLB {
 
       // Calculate the aggregate load that has to be sent.
       serial {
-        CkCallback cbm(CkReductionTarget(DiffusionLB, MaxLoad), thisProxy(0,0));
+        CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0,0));
         contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
-        CkCallback cba(CkReductionTarget(DiffusionLB, AvgLoad), thisProxy(0,0));
+        CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy(0,0));
         contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
         AggregateToSend();
       }

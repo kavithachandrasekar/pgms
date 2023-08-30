@@ -1,20 +1,23 @@
 -include ../../../common.mk
 OPTS	= -O3
-CHARMC	= ../../../../bin/charmc $(OPTS)
+CHARMC	= ../../../bin/charmc $(OPTS)
 
-OBJS = DiffusionLB.o
+OBJS = Diffusion.o
 
-all: DiffusionLB
+all: Diffusion
 
-DiffusionLB: $(OBJS)
-	$(CHARMC) -language charm++ -o DiffusionLB $(OBJS)
+Diffusion: $(OBJS)
+	$(CHARMC) -language charm++ -o Diffusion $(OBJS)
 
-DiffusionLB.decl.h: DiffusionLB.ci
-	$(CHARMC)  DiffusionLB.ci
+Diffusion.decl.h: Diffusion.ci
+	$(CHARMC)  Diffusion.ci
 
-DiffusionLB.o: DiffusionLB.C DiffusionLB.decl.h
-	$(CHARMC) -c DiffusionLB.C
+libdiffusion.a: Diffusion.o
+	$(CHARMC) Diffusion.o -o libdiffusion.a -language charm++
+
+Diffusion.o: Diffusion.C Diffusion.decl.h
+	$(CHARMC) -c Diffusion.C
 
 clean:
-	rm -f *.decl.h *.def.h conv-host *.o DiffusionLB DiffusionLB.prj charmrun *~
+	rm -f *.decl.h *.def.h conv-host *.o Diffusion Diffusion.prj charmrun *~
 
