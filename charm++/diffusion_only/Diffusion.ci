@@ -20,7 +20,7 @@ module Diffusion {
     entry [reductiontarget] void MaxLoad(double val);
     entry [reductiontarget] void AvgLoad(double val);
     entry [reductiontarget] void findNBors(int do_again);
-    entry void setNeighbors(std::vector<int> neighbors, double load);
+    entry void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);
     entry void AtSync(void);
@@ -32,8 +32,10 @@ module Diffusion {
       for(itr = 0; itr < ITERATIONS; itr++) {
         // Send its load
         serial "Send loadInfo" {
-          for(int i = 0; i < neighborCount; i++)
+          for(int i = 0; i < neighborCount; i++) {
+//            CkPrintf("\nNode-%d idx(%d,%d)sending to node%d idx(%d,%d)mod%d\n", getNodeId(thisIndex.x, thisIndex.y,NY), thisIndex.x, thisIndex.y,sendToNeighbors[i], getX(sendToNeighbors[i],NY), getY(sendToNeighbors[i],NY), NY); fflush(stdout);
             thisProxy(getX(sendToNeighbors[i],NY), getY(sendToNeighbors[i],NY)).ReceiveLoadInfo(itr, my_load, getNodeId(thisIndex.x, thisIndex.y,NY));
+          }
         }
            
           // Wait for all its neighbors load
@@ -74,11 +76,15 @@ module Diffusion {
       serial {
         CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0,0));
         contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
-        CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy(0,0));
+        CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
         contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
         AggregateToSend();
       }
     }
+  };
+
+  group BlockNodeMap : CkArrayMap {
+    entry BlockNodeMap(int x, int y, int nSize);
   };
 };
 

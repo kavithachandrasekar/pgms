@@ -9,11 +9,10 @@
  *  2. Over multiple iterations, each node diffuses load to neighbor nodes
  *     by only passing load values
  */
-
 #include "Diffusion.h"
 
 #define DEBUGF(x) CmiPrintf x;
-#define DEBUGL(x) /*CmiPrintf x;*/
+#define DEBUGL(x) /*CmiPrintf x*/;
 #define NUM_NEIGHBORS 4
 //#define NX 25 //node dimension
 //#define NY 16
@@ -22,7 +21,7 @@
 #define THRESHOLD 2
 
 #define getNodeId(x,y, NY) x * NY + y
-#define getX(node, NY) floor(node/NY)
+#define getX(node, NY) (int)floor(node/NY)
 #define getY(node, NY) node%NY
 
 using std::vector;
@@ -36,10 +35,13 @@ class Main : public CBase_Main {
       mainProxy = thisProxy;
       // Create new array of worker chares
       int NX, NY;
-//      NX = NY = 20;
-      NX = 25;
-      NY = 16;
-      CProxy_Diffusion array = CProxy_Diffusion::ckNew(NX, NY, NX, NY);
+      NX = NY = 20;
+//      NX = 25;
+//      NY = 16;
+      CProxy_BlockNodeMap map = CProxy_BlockNodeMap::ckNew(NX, NY, 1);
+      CkArrayOptions opts(NX,NY);
+      opts.setMap(map);
+      CProxy_Diffusion array = CProxy_Diffusion::ckNew(NX, NY, opts);
       array.AtSync();
     }
     void done() {
@@ -50,6 +52,8 @@ class Main : public CBase_Main {
 #endif
 
 Diffusion::Diffusion(int nx, int ny){
+  setMigratable(false);
+//  CkPrintf("\nNX,NY=%d,%d with chare %d,%d on PE-%d", nx, ny, thisIndex.x, thisIndex.y, CkMyPe());
   NX = nx;
   NY = ny;
   done = -1;
@@ -64,7 +68,7 @@ void Diffusion::AtSync() {
 
   CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0,0));
   contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
-  CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy(0,0));
+  CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
 
   sendToNeighbors.reserve(NUM_NEIGHBORS);
@@ -80,17 +84,24 @@ void Diffusion::AtSync() {
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
 }
 
-void Diffusion::setNeighbors(std::vector<int> nbors, double load) {
+void Diffusion::passPtrs(double *loadNbors, double *toSendLd,
+                              double *toRecvLd, void (*func)(void*), void* obj) {
+  loadNeighbors = loadNbors;
+  toSendLoad = toSendLd;
+  toReceiveLoad = toRecvLd;
+  cb = func;
+  objPtr = obj;
+}
+
+void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load) {
+  neighborCount = nCount;
+  for(int i=0;i<neighborCount;i++)
+    sendToNeighbors.push_back(nbors[i]);
+
   my_load = load;
-  neighborCount = nbors.size();
-  sendToNeighbors = nbors;
-  loadNeighbors.resize(neighborCount);
-  toSendLoad.resize(neighborCount);
-  toReceiveLoad.resize(neighborCount);
 
   CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
   contribute(cb);
-
 }
 
 void Diffusion::findNBors(int do_again) {
@@ -103,9 +114,9 @@ void Diffusion::findNBors(int do_again) {
     }
     DEBUGL(("[%d,%d] node-%d with nbors %s\n", thisIndex.x, thisIndex.y, getNodeId(thisIndex.x, thisIndex.y,NY), nbor_nodes.c_str()));
 
-    loadNeighbors.resize(neighborCount);
-    toSendLoad.resize(neighborCount);
-    toReceiveLoad.resize(neighborCount);
+    loadNeighbors = new double[neighborCount];
+    toSendLoad = new double[neighborCount];
+    toReceiveLoad = new double[neighborCount];
 
     CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
     contribute(cb);
@@ -205,9 +216,15 @@ void Diffusion::MaxLoad(double val) {
 
 void Diffusion::AvgLoad(double val) {
   done++;
-  DEBUGF(("\nAvg PE load = %lf", val/(NX*NY)));
+  if(thisIndex.x==0 && thisIndex.y==0)
+  DEBUGF(("\nAvg Node load = %lf", val/(NX*NY)));
+#ifdef STANDALONE_DIFF
   if(done == 1)
-    CkExit(0);//mainProxy.done();
+    mainProxy.done();
+#else
+//    CkPrintf("\nCalling Obj potr %d", CkMyPe());
+    cb(objPtr);
+#endif
 }
 
 void Diffusion::PseudoLoadBalancing() {
