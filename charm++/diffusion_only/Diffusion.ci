@@ -14,7 +14,7 @@ module Diffusion {
   };
 #endif
 
-  array [2D] Diffusion {
+  array [1D] Diffusion {
     entry Diffusion(int nx, int ny);
     entry [reductiontarget] void startDiffusion();
     entry [reductiontarget] void MaxLoad(double val);
@@ -33,8 +33,8 @@ module Diffusion {
         // Send its load
         serial "Send loadInfo" {
           for(int i = 0; i < neighborCount; i++) {
-//            CkPrintf("\nNode-%d idx(%d,%d)sending to node%d idx(%d,%d)mod%d\n", getNodeId(thisIndex.x, thisIndex.y,NY), thisIndex.x, thisIndex.y,sendToNeighbors[i], getX(sendToNeighbors[i],NY), getY(sendToNeighbors[i],NY), NY); fflush(stdout);
-            thisProxy(getX(sendToNeighbors[i],NY), getY(sendToNeighbors[i],NY)).ReceiveLoadInfo(itr, my_load, getNodeId(thisIndex.x, thisIndex.y,NY));
+//            CkPrintf("\nNode-%d sending to node%d idx(%d,%d)mod%d\n", thisIndex, sendToNeighbors[i], getX(sendToNeighbors[i]), getY(sendToNeighbors[i]), NY); fflush(stdout);
+            thisProxy(sendToNeighbors[i]).ReceiveLoadInfo(itr, my_load, thisIndex);
           }
         }
            
@@ -74,7 +74,7 @@ module Diffusion {
 
       // Calculate the aggregate load that has to be sent.
       serial {
-        CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0,0));
+        CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
         contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
         CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
         contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);

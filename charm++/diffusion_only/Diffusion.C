@@ -14,15 +14,15 @@
 #define DEBUGF(x) CmiPrintf x;
 #define DEBUGL(x) /*CmiPrintf x*/;
 #define NUM_NEIGHBORS 4
-//#define NX 25 //node dimension
-//#define NY 16
-#define ITERATIONS 24
+#define NX 20 //node dimension
+#define NY 20
+#define ITERATIONS 40
 
 #define THRESHOLD 2
 
 #define getNodeId(x,y, NY) x * NY + y
-#define getX(node, NY) (int)floor(node/NY)
-#define getY(node, NY) node%NY
+#define getX(node) (int)floor(node/NY)
+#define getY(node) node%NY
 
 using std::vector;
 
@@ -34,12 +34,12 @@ class Main : public CBase_Main {
     Main(CkArgMsg* m) {
       mainProxy = thisProxy;
       // Create new array of worker chares
-      int NX, NY;
-      NX = NY = 20;
+//      int NX, NY;
+//      NX = NY = 20;
 //      NX = 25;
 //      NY = 16;
       CProxy_BlockNodeMap map = CProxy_BlockNodeMap::ckNew(NX, NY, 1);
-      CkArrayOptions opts(NX,NY);
+      CkArrayOptions opts(NX*NY);
       opts.setMap(map);
       CProxy_Diffusion array = CProxy_Diffusion::ckNew(NX, NY, opts);
       array.AtSync();
@@ -54,8 +54,8 @@ class Main : public CBase_Main {
 Diffusion::Diffusion(int nx, int ny){
   setMigratable(false);
 //  CkPrintf("\nNX,NY=%d,%d with chare %d,%d on PE-%d", nx, ny, thisIndex.x, thisIndex.y, CkMyPe());
-  NX = nx;
-  NY = ny;
+  //NX = nx;
+  //NY = ny;
   done = -1;
   round = 0;}
 
@@ -63,10 +63,11 @@ Diffusion::~Diffusion() { }
 
 void Diffusion::AtSync() {
   my_load = 1.0;
-  if(thisIndex.x % 2 == 0 && thisIndex.y % 3 ==0)
+  //if(getX(thisIndex) % 2 == 0 || 
+  if(getY(thisIndex) % 3 ==0)
     my_load *= 20.0;
 
-  CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0,0));
+  CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
   contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
   CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
@@ -112,7 +113,7 @@ void Diffusion::findNBors(int do_again) {
     for(int i = 0; i < neighborCount; i++) {
       nbor_nodes += "node-"+ std::to_string(sendToNeighbors[i])+", ";
     }
-    DEBUGL(("[%d,%d] node-%d with nbors %s\n", thisIndex.x, thisIndex.y, getNodeId(thisIndex.x, thisIndex.y,NY), nbor_nodes.c_str()));
+    DEBUGL(("node-%d with nbors %s\n", thisIndex, nbor_nodes.c_str()));
 
     loadNeighbors = new double[neighborCount];
     toSendLoad = new double[neighborCount];
@@ -123,7 +124,7 @@ void Diffusion::findNBors(int do_again) {
     return;
   }
   int potentialNb = 0;
-  int myNodeId = getNodeId(thisIndex.x, thisIndex.y,NY);
+  int myNodeId = thisIndex;
   int nborsNeeded = (NUM_NEIGHBORS - sendToNeighbors.size())/2;
   if(nborsNeeded > 0) {
     while(potentialNb < nborsNeeded) {
@@ -131,7 +132,7 @@ void Diffusion::findNBors(int do_again) {
       if(myNodeId != potentialNbor &&
           std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end()) {
         requests_sent++;
-        thisProxy(getX(potentialNbor,NY),getY(potentialNbor,NY)).proposeNbor(myNodeId);
+        thisProxy(potentialNbor).proposeNbor(myNodeId);
         potentialNb++;
       }
     }
@@ -149,16 +150,16 @@ void Diffusion::proposeNbor(int nborId) {
       std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
     agree = 1;
     sendToNeighbors.push_back(nborId);
-    DEBUGL(("\nNode-%d, round =%d Agreeing and adding %d ", getNodeId(thisIndex.x, thisIndex.y,NY), round, nborId));
+    DEBUGL(("\nNode-%d, round =%d Agreeing and adding %d ", thisIndex, round, nborId));
   } else {
-    DEBUGL(("\nNode-%d, round =%d Rejecting %d ", getNodeId(thisIndex.x, thisIndex.y,NY), round, nborId));
+    DEBUGL(("\nNode-%d, round =%d Rejecting %d ", thisIndex, round, nborId));
   }
-  thisProxy(getX(nborId,NY), getY(nborId,NY)).okayNbor(agree, getNodeId(thisIndex.x, thisIndex.y,NY));
+  thisProxy(nborId).okayNbor(agree, thisIndex);
 }
 
 void Diffusion::okayNbor(int agree, int nborId) {
   if(sendToNeighbors.size() < NUM_NEIGHBORS && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
-    DEBUGL(("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor", getNodeId(thisIndex.x, thisIndex.y,NY), round, nborId));
+    DEBUGL(("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor", thisIndex, round, nborId));
     sendToNeighbors.push_back(nborId);
   }
 
@@ -182,7 +183,7 @@ int Diffusion::findNborIdx(int node) {
     if(sendToNeighbors[i] == node)
       return i;
   for(int i=0;i<neighborCount;i++)
-  DEBUGL(("\n[%d,%d]Couldnt find node %d in %d", thisIndex.x, thisIndex.y, node, sendToNeighbors[i]));
+  DEBUGL(("\n[%d]Couldnt find node %d in %d", thisIndex, node, sendToNeighbors[i]));
   CkExit(0);
   return -1;
 }
@@ -216,8 +217,8 @@ void Diffusion::MaxLoad(double val) {
 
 void Diffusion::AvgLoad(double val) {
   done++;
-  if(thisIndex.x==0 && thisIndex.y==0)
-  DEBUGF(("\nAvg Node load = %lf", val/(NX*NY)));
+  if(thisIndex==0)//getX(thisIndex)==0 && getY(thisIndex)==0)
+  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/(NX*NY)));
 #ifdef STANDALONE_DIFF
   if(done == 1)
     mainProxy.done();
@@ -266,7 +267,7 @@ void Diffusion::PseudoLoadBalancing() {
       CkAbort("Get out");
     my_load -= thisIterToSend[i];
     int nbor_node = sendToNeighbors[i];
-    thisProxy(getX(nbor_node,NY), getY(nbor_node,NY)).PseudoLoad(itr, thisIterToSend[i], getNodeId(thisIndex.x, thisIndex.y, NY));
+    thisProxy(nbor_node).PseudoLoad(itr, thisIterToSend[i], thisIndex);
   }
 }
 
