@@ -12,18 +12,33 @@
 #include "Diffusion.h"
 
 #define DEBUGF(x) CmiPrintf x;
-#define DEBUGL(x) /*CmiPrintf x*/;
+#define DEBUGL(x) /*CmiPrintf x;*/
 #define NUM_NEIGHBORS 4
-#define NX 20 //node dimension
-#define NY 20
-#define ITERATIONS 40
+//#define NX 20 //node dimension
+//#define NY 20
+#define ITERATIONS 100
 
 #define THRESHOLD 2
 
+#define NBORS_3D
+
+#ifdef NBORS_3D
+#define NX 8
+#define NY 8
+#define NZ 8
+int getNodeId(int x, int y, int z) {
+  if(x < 0 || y < 0 || z < 0) return -1;
+  if(x >= NX || y >= NY || z >= NZ) return -1;
+  return  x * NY * NZ + y * NZ + z;
+}
+#define getX(node) (int)floor(node / (NY * NZ))
+#define getY(node) (node % (NY * NZ) )/NZ
+#define getZ(node) node % NZ
+#else //2D
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
 #define getY(node) node%NY
-
+#endif
 using std::vector;
 
 #ifdef STANDALONE_DIFF
@@ -39,7 +54,7 @@ class Main : public CBase_Main {
 //      NX = 25;
 //      NY = 16;
       CProxy_BlockNodeMap map = CProxy_BlockNodeMap::ckNew(NX, NY, 1);
-      CkArrayOptions opts(NX*NY);
+      CkArrayOptions opts(NX*NY*NZ);
       opts.setMap(map);
       CProxy_Diffusion array = CProxy_Diffusion::ckNew(NX, NY, opts);
       array.AtSync();
@@ -72,7 +87,7 @@ void Diffusion::AtSync() {
   CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
 
-  sendToNeighbors.reserve(NUM_NEIGHBORS);
+  sendToNeighbors.reserve(26);//NUM_NEIGHBORS);
   //Create 2d neighbors
 #if 0
   if(thisIndex.x > 0) sendToNeighbors.push_back(getNodeId(thisIndex.x-1, thisIndex.y));
@@ -81,7 +96,11 @@ void Diffusion::AtSync() {
   if(thisIndex.y < N-1) sendToNeighbors.push_back(getNodeId(thisIndex.x, thisIndex.y+1));
 #endif
   int do_again = 1;
+#ifdef NBORS_3D
+  CkCallback cb(CkReductionTarget(Diffusion, pick3DNbors/*findNBors*/), thisProxy);
+#else
   CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
+#endif
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
 }
 
@@ -103,6 +122,65 @@ void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load) {
 
   CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
   contribute(cb);
+}
+
+void Diffusion::pick3DNbors() {
+  int x = getX(thisIndex);
+  int y = getY(thisIndex);
+  int z = getZ(thisIndex);
+
+  //6 neighbors along face of cell
+  sendToNeighbors.push_back(getNodeId(x-1,y,z));
+  sendToNeighbors.push_back(getNodeId(x+1,y,z));
+  sendToNeighbors.push_back(getNodeId(x,y-1,z));
+  sendToNeighbors.push_back(getNodeId(x,y+1,z));
+  sendToNeighbors.push_back(getNodeId(x,y,z-1));
+  sendToNeighbors.push_back(getNodeId(x,y,z+1));
+
+#if 1
+  //12 neighbors along edges
+  sendToNeighbors.push_back(getNodeId(x-1,y-1,z));
+  sendToNeighbors.push_back(getNodeId(x-1,y+1,z));
+  sendToNeighbors.push_back(getNodeId(x+1,y-1,z));
+  sendToNeighbors.push_back(getNodeId(x+1,y+1,z));
+  
+  sendToNeighbors.push_back(getNodeId(x-1,y,z-1));
+  sendToNeighbors.push_back(getNodeId(x-1,y,z+1));
+  sendToNeighbors.push_back(getNodeId(x+1,y,z-1));
+  sendToNeighbors.push_back(getNodeId(x+1,y,z+1));
+
+  sendToNeighbors.push_back(getNodeId(x,y-1,z-1));
+  sendToNeighbors.push_back(getNodeId(x,y-1,z+1));
+  sendToNeighbors.push_back(getNodeId(x,y+1,z-1));
+  sendToNeighbors.push_back(getNodeId(x,y+1,z+1));
+#endif
+#if 0
+  //neighbors at vertices
+  sendToNeighbors.push_back(getNodeId(x-1,y-1,z-1));
+  sendToNeighbors.push_back(getNodeId(x-1,y-1,z+1));
+  sendToNeighbors.push_back(getNodeId(x-1,y+1,z-1));
+  sendToNeighbors.push_back(getNodeId(x-1,y+1,z+1));
+
+  sendToNeighbors.push_back(getNodeId(x+1,y-1,z-1));
+  sendToNeighbors.push_back(getNodeId(x+1,y-1,z+1));
+  sendToNeighbors.push_back(getNodeId(x+1,y+1,z-1));
+  sendToNeighbors.push_back(getNodeId(x+1,y+1,z+1));
+#endif
+
+  int size = sendToNeighbors.size();
+  int count = 0;
+
+  for(int i=0;i<size-count;i++) {
+    if(sendToNeighbors[i] < 0)  {
+      sendToNeighbors[i] = sendToNeighbors[size-1-count];
+      sendToNeighbors[size-1-count] = -1;
+      i -= 1;
+      count++;
+    }
+  }
+  sendToNeighbors.resize(size-count);
+  
+  findNBors(0); 
 }
 
 void Diffusion::findNBors(int do_again) {
@@ -212,13 +290,13 @@ bool Diffusion::AggregateToSend() {
 }
 
 void Diffusion::MaxLoad(double val) {
-  DEBUGF(("\nMax PE load = %lf", val));
+  DEBUGF(("\n[Iter: %d] Max PE load = %lf", itr, val));
 }
 
 void Diffusion::AvgLoad(double val) {
   done++;
   if(thisIndex==0)//getX(thisIndex)==0 && getY(thisIndex)==0)
-  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/(NX*NY)));
+  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/(NX*NY*NZ)));
 #ifdef STANDALONE_DIFF
   if(done == 1)
     mainProxy.done();

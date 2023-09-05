@@ -20,6 +20,7 @@ module Diffusion {
     entry [reductiontarget] void MaxLoad(double val);
     entry [reductiontarget] void AvgLoad(double val);
     entry [reductiontarget] void findNBors(int do_again);
+    entry [reductiontarget] void pick3DNbors();
     entry void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);
@@ -69,7 +70,10 @@ module Diffusion {
               toReceiveLoad[pos] += load;
           }
         }
-          
+        serial {
+        CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
+        contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
+        }
       }
 
       // Calculate the aggregate load that has to be sent.

@@ -21,6 +21,7 @@ public:
     void MaxLoad(double val);
     void AvgLoad(double val);
     void findNBors(int do_again);
+    void pick3DNbors();
     void proposeNbor(int nborId); 
     void okayNbor(int agree, int nborId);
     void passPtrs(double *loadNbors, double *toSendLd,
@@ -43,7 +44,7 @@ private:
     double* toSendLoad;
     double* toReceiveLoad;
 
-    int NX, NY;
+//    int NX, NY;
     double my_load;
     double my_loadAfterTransfer;
     double avgLoadNeighbor;
