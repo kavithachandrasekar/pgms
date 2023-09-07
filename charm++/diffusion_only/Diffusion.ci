@@ -70,10 +70,12 @@ module Diffusion {
               toReceiveLoad[pos] += load;
           }
         }
+#if 0
         serial {
         CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
         contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
         }
+#endif
       }
 
       // Calculate the aggregate load that has to be sent.

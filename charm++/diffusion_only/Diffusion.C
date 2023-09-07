@@ -20,7 +20,7 @@
 
 #define THRESHOLD 2
 
-#define NBORS_3D
+//#define NBORS_3D
 
 #ifdef NBORS_3D
 #define NX 8
@@ -35,6 +35,9 @@ int getNodeId(int x, int y, int z) {
 #define getY(node) (node % (NY * NZ) )/NZ
 #define getZ(node) node % NZ
 #else //2D
+#define NX 20
+#define NY 20
+#define NZ 1
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
 #define getY(node) node%NY
@@ -125,6 +128,7 @@ void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load) {
 }
 
 void Diffusion::pick3DNbors() {
+#if NBORS_3D
   int x = getX(thisIndex);
   int y = getY(thisIndex);
   int z = getZ(thisIndex);
@@ -137,7 +141,6 @@ void Diffusion::pick3DNbors() {
   sendToNeighbors.push_back(getNodeId(x,y,z-1));
   sendToNeighbors.push_back(getNodeId(x,y,z+1));
 
-#if 1
   //12 neighbors along edges
   sendToNeighbors.push_back(getNodeId(x-1,y-1,z));
   sendToNeighbors.push_back(getNodeId(x-1,y+1,z));
@@ -153,7 +156,6 @@ void Diffusion::pick3DNbors() {
   sendToNeighbors.push_back(getNodeId(x,y-1,z+1));
   sendToNeighbors.push_back(getNodeId(x,y+1,z-1));
   sendToNeighbors.push_back(getNodeId(x,y+1,z+1));
-#endif
 #if 0
   //neighbors at vertices
   sendToNeighbors.push_back(getNodeId(x-1,y-1,z-1));
@@ -180,7 +182,8 @@ void Diffusion::pick3DNbors() {
   }
   sendToNeighbors.resize(size-count);
   
-  findNBors(0); 
+  findNBors(0);
+#endif
 }
 
 void Diffusion::findNBors(int do_again) {
