@@ -72,7 +72,7 @@ public:
     return 0;
   }
   int procNum(int /*arrayHdl*/,const CkArrayIndex &idx) {
-    int elem = idx.data()[0]*ny +idx.data()[1];
+    int elem = idx.data()[0];
     int penum = (elem*nodeSize);
 #ifdef STANDALONE_DIFF
     return 0;
