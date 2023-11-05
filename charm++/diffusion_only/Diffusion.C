@@ -18,6 +18,7 @@
 #define DEBUGE(x) CmiPrintf x;
 
 #define NUM_NEIGHBORS 4
+
 #define ITERATIONS 100
 
 #define SELF_IDX NUM_NEIGHBORS
@@ -50,6 +51,9 @@ int getNodeId(int x, int y, int z) {
 
 #define BYTES 512
 #define SIZE 1000
+
+#include "Neighbor_list.C"
+
 using std::vector;
 
 #ifdef STANDALONE_DIFF
@@ -67,15 +71,16 @@ class Main : public CBase_Main {
     if (f==NULL) {
       CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", filename);
     }
-    int stats_msg_count;
+    int stats_msg_count;  
     BaseLB::LDStats *statsDatax = new BaseLB::LDStats;
     statsDatax->objData.reserve(SIZE);
     statsDatax->from_proc.reserve(SIZE);
     statsDatax->to_proc.reserve(SIZE);
     statsDatax->commData.reserve(SIZE);
+
     PUP::fromDisk pd(f);
     PUP::machineInfo machInfo;
-
+    
     pd((char *)&machInfo, sizeof(machInfo));  // read machine info
     PUP::xlater p(machInfo, pd);
 
@@ -83,7 +88,7 @@ class Main : public CBase_Main {
       p|_lb_args.lbversion();   // write version number
       CkPrintf("LB> File version detected: %d\n", _lb_args.lbversion());
       CmiAssert(_lb_args.lbversion() <= LB_FORMAT_VERSION);
-    }
+    } 
     p|stats_msg_count;
 
     CmiPrintf("readStatsMsgs for %d pes starts ... \n", stats_msg_count);
@@ -91,7 +96,7 @@ class Main : public CBase_Main {
     statsDatax->pup(p);
 
     CmiPrintf("n_obj: %zu n_migratable: %d \n", statsDatax->objData.size(), statsDatax->n_migrateobjs);
-
+    
     // file f is closed in the destructor of PUP::fromDisk
     CmiPrintf("ReadStatsMsg from %s completed\n", filename);
     statsData = statsDatax;
@@ -105,6 +110,7 @@ class Main : public CBase_Main {
     // Generate a hash with key object id, value index in objs vector
     statsData->deleteCommHash();
     statsData->makeCommHash();
+  //  statsData->print();
     diff_array = CProxy_Diffusion::ckNew(NX, NY, NX*NY);
   }
   void init(){
@@ -152,8 +158,6 @@ Diffusion::Diffusion(int nx, int ny){
 Diffusion::~Diffusion() { }
 
 void Diffusion::AtSync() {
- //   my_load *= 20.0;
- // my_loadAfterTransfer = my_load;
   contribute(CkCallback(CkReductionTarget(Diffusion, createObjs), thisProxy));
 }
 
@@ -167,13 +171,7 @@ void Diffusion::createObjs() {
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
 
   sendToNeighbors.reserve(26);//NUM_NEIGHBORS);
-  //Create 2d neighbors
-#if 0
-  if(thisIndex.x > 0) sendToNeighbors.push_back(getNodeId(thisIndex.x-1, thisIndex.y));
-  if(thisIndex.x < N-1) sendToNeighbors.push_back(getNodeId(thisIndex.x+1, thisIndex.y));
-  if(thisIndex.y > 0) sendToNeighbors.push_back(getNodeId(thisIndex.x, thisIndex.y-1));
-  if(thisIndex.y < N-1) sendToNeighbors.push_back(getNodeId(thisIndex.x, thisIndex.y+1));
-#endif
+
   int do_again = 1;
 #ifdef NBORS_3D
   CkCallback cb(CkReductionTarget(Diffusion, pick3DNbors/*findNBors*/), thisProxy);
@@ -202,136 +200,6 @@ void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load) {
   CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
   contribute(cb);
 }
-
-void Diffusion::pick3DNbors() {
-#if NBORS_3D
-  int x = getX(thisIndex);
-  int y = getY(thisIndex);
-  int z = getZ(thisIndex);
-
-  //6 neighbors along face of cell
-  sendToNeighbors.push_back(getNodeId(x-1,y,z));
-  sendToNeighbors.push_back(getNodeId(x+1,y,z));
-  sendToNeighbors.push_back(getNodeId(x,y-1,z));
-  sendToNeighbors.push_back(getNodeId(x,y+1,z));
-  sendToNeighbors.push_back(getNodeId(x,y,z-1));
-  sendToNeighbors.push_back(getNodeId(x,y,z+1));
-
-  //12 neighbors along edges
-  sendToNeighbors.push_back(getNodeId(x-1,y-1,z));
-  sendToNeighbors.push_back(getNodeId(x-1,y+1,z));
-  sendToNeighbors.push_back(getNodeId(x+1,y-1,z));
-  sendToNeighbors.push_back(getNodeId(x+1,y+1,z));
-  
-  sendToNeighbors.push_back(getNodeId(x-1,y,z-1));
-  sendToNeighbors.push_back(getNodeId(x-1,y,z+1));
-  sendToNeighbors.push_back(getNodeId(x+1,y,z-1));
-  sendToNeighbors.push_back(getNodeId(x+1,y,z+1));
-
-  sendToNeighbors.push_back(getNodeId(x,y-1,z-1));
-  sendToNeighbors.push_back(getNodeId(x,y-1,z+1));
-  sendToNeighbors.push_back(getNodeId(x,y+1,z-1));
-  sendToNeighbors.push_back(getNodeId(x,y+1,z+1));
-#if 0
-  //neighbors at vertices
-  sendToNeighbors.push_back(getNodeId(x-1,y-1,z-1));
-  sendToNeighbors.push_back(getNodeId(x-1,y-1,z+1));
-  sendToNeighbors.push_back(getNodeId(x-1,y+1,z-1));
-  sendToNeighbors.push_back(getNodeId(x-1,y+1,z+1));
-
-  sendToNeighbors.push_back(getNodeId(x+1,y-1,z-1));
-  sendToNeighbors.push_back(getNodeId(x+1,y-1,z+1));
-  sendToNeighbors.push_back(getNodeId(x+1,y+1,z-1));
-  sendToNeighbors.push_back(getNodeId(x+1,y+1,z+1));
-#endif
-
-  int size = sendToNeighbors.size();
-  int count = 0;
-
-  for(int i=0;i<size-count;i++) {
-    if(sendToNeighbors[i] < 0)  {
-      sendToNeighbors[i] = sendToNeighbors[size-1-count];
-      sendToNeighbors[size-1-count] = -1;
-      i -= 1;
-      count++;
-    }
-  }
-  sendToNeighbors.resize(size-count);
-  
-  findNBors(0);
-#endif
-}
-
-void Diffusion::findNBors(int do_again) {
-  requests_sent = 0;
-  if(!do_again || round == 100) {
-    neighborCount = sendToNeighbors.size();
-    std::string nbor_nodes;
-    for(int i = 0; i < neighborCount; i++) {
-      nbor_nodes += "node-"+ std::to_string(sendToNeighbors[i])+", ";
-    }
-    DEBUGL(("node-%d with nbors %s\n", thisIndex, nbor_nodes.c_str()));
-
-    loadNeighbors = new double[neighborCount];
-    toSendLoad = new double[neighborCount];
-    toReceiveLoad = new double[neighborCount];
-
-    CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
-    contribute(cb);
-    return;
-  }
-  int potentialNb = 0;
-  int myNodeId = thisIndex;
-  int nborsNeeded = (NUM_NEIGHBORS - sendToNeighbors.size())/2;
-  if(nborsNeeded > 0) {
-    while(potentialNb < nborsNeeded) {
-      int potentialNbor = rand() % (NX*NY);
-      if(myNodeId != potentialNbor &&
-          std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end()) {
-        requests_sent++;
-        thisProxy(potentialNbor).proposeNbor(myNodeId);
-        potentialNb++;
-      }
-    }
-  }
-  else {
-    int do_again = 0;
-    CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
-    contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
-  }
-}
-
-void Diffusion::proposeNbor(int nborId) {
-  int agree = 0;
-  if((NUM_NEIGHBORS-sendToNeighbors.size())-requests_sent > 0 && sendToNeighbors.size() < NUM_NEIGHBORS &&
-      std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
-    agree = 1;
-    sendToNeighbors.push_back(nborId);
-    DEBUGL2(("\nNode-%d, round =%d Agreeing and adding %d ", thisIndex, round, nborId));
-  } else {
-    DEBUGL2(("\nNode-%d, round =%d Rejecting %d ", thisIndex, round, nborId));
-  }
-  thisProxy(nborId).okayNbor(agree, thisIndex);
-}
-
-void Diffusion::okayNbor(int agree, int nborId) {
-  if(sendToNeighbors.size() < NUM_NEIGHBORS && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
-    DEBUGL2(("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor", thisIndex, round, nborId));
-    sendToNeighbors.push_back(nborId);
-  }
-
-  requests_sent--;
-  if(requests_sent > 0) return;
-
-  int do_again = 0;
-  if(sendToNeighbors.size()<NUM_NEIGHBORS)
-    do_again = 1;
-  round++;
-  CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
-  contribute(sizeof(int), &do_again, CkReduction::max_int, cb); 
-}
-
-//void Diffusion::readObjCommGraph() {}
 
 void Diffusion::createObjList(){
   my_load = 0.0;
@@ -365,45 +233,62 @@ void Diffusion::createObjList(){
         flag = 1;
         break;
       }
-    if(flag)
+    if(flag) {
       pe_obj_count[i] = per_overload_pe_obj;
-    else
+//      if(thisIndex==0)
+//      CkPrintf("\npe_obj_count[%d] = %d", i, per_overload_pe_obj);
+    } 
+    else {
       pe_obj_count[i] = per_pe_obj;
-  }
-
-  //compute prefix
-  if(thisIndex == 0) {
-    //populate for node-0 here
-    for(int j=0; j<pe_obj_count[0];j++)
-      obj_to_pe_map[0].push_back(j);
-  }
-  for(int i=1;i<numNodes;i++) {
-    pe_obj_count[i] += pe_obj_count[i-1];
-    if(thisIndex == 0) {
-      for(int j=pe_obj_count[i-1];j<pe_obj_count[i];j++)
-        obj_to_pe_map[i].push_back(j);
+//      if(thisIndex==0)
+//      CkPrintf("\npe_obj_count[%d] = %d", i, per_pe_obj);
     }
   }
 
   int nobj = 0;
+    //compute prefix
+//    CkPrintf("\npe_obj_count[%d] = %d", 0, pe_obj_count[0]);
+    if(thisIndex == 0) {
+      //populate for node-0 here
+      for(int j=0; j<pe_obj_count[0];j++)
+        obj_to_pe_map[0].push_back(j);
+    }
+    for(int i=1;i<numNodes;i++) {
+      pe_obj_count[i] += pe_obj_count[i-1];
+      if(thisIndex == 0) {
+        for(int j=pe_obj_count[i-1];j<pe_obj_count[i];j++)
+          obj_to_pe_map[i].push_back(j);
+      }
+
+//      CkPrintf("\npe_obj_count[%d] = %d", i, pe_obj_count[i]);
+    }
+
   int obj = 0;
   
   if(thisIndex>0) obj = pe_obj_count[thisIndex-1];
 
-  for(; obj < pe_obj_count[thisIndex]; obj++) {
+  for(; obj < pe_obj_count[thisIndex]/*statsData->objData.size()*/; obj++) {
     LDObjData &oData = statsData->objData[obj];
     int pe = statsData->from_proc[obj];
+    //if(pe != thisIndex) continue;
     if (!oData.migratable) {
       if (!statsData->procs[pe].available)
         CmiAbort("Greedy0LB cannot handle nonmigratable object on an unavial processor!\n");
       continue;
     }
     double load = oData.wallTime * statsData->procs[pe].pe_speed;
-    objects.push_back(CkVertex(obj, load, statsData->objData[obj].migratable, pe));
+    objects.push_back(CkVertex(obj/*oData.handle.objID()*/, load, statsData->objData[obj].migratable, pe));
     my_load += load;
     nobj++;
   }
+
   my_loadAfterTransfer = my_load;
+//  CkPrintf("\nThe number of objects on this node(#%d) = %d", thisIndex, nobj);
+/*
+  for(int nobj = 0; nobj < (int)(my_load); nobj++) {
+    objects[nobj] = CkVertex(nobj, 1.0, 1, 0);//oData.wallTime, statsData->objData[nobj].migratable, statsData->from_proc[nobj]);
+  }
+*/
 }
 
 bool Diffusion::obj_on_node(int objId) {
@@ -416,12 +301,16 @@ bool Diffusion::obj_on_node(int objId) {
 }
 
 int Diffusion::get_obj_idx(int objHandleId) {
+//  CkPrintf("\nAsking for %d", objHandleId);
   Diffusion* diff0 = diff_array(0).ckLocal();
   for(int i=0; i< statsData->objData.size(); i++) {
+//    CkPrintf("\nPrinting[%d] = %d", i, diff0->map_obj_id[i]);
     if(diff0->map_obj_id[i] == objHandleId) {
+//      CkPrintf("\nReturning i=%d",i);
       return i;
     }
   }
+//  CkPrintf("\nNot found");
   return -1;
 }
 
@@ -434,9 +323,6 @@ int Diffusion::obj_node_map(int objId) {
     }
   }
   return -1;
-}
-
-void Diffusion::createObjGraph(){
 }
 
 void Diffusion::startDiffusion() {
@@ -452,11 +338,7 @@ int Diffusion::findNborIdx(int node) {
 //  CkExit(0);
   return -1;
 }
-/*
-int Diffusion::getNodeId(int x, int y) {
-  return x*NY+y;
-}
-*/
+
 double Diffusion::average() {
   double sum = 0;
   for(int i = 0; i < neighborCount; i++) {
@@ -490,6 +372,7 @@ void Diffusion::AvgLoad(double val) {
     thisProxy(thisIndex).LoadBalancing();
   }
 #else
+//    CkPrintf("\nCalling Obj potr %d", CkMyPe());
     cb(objPtr);
 #endif
 }
@@ -553,23 +436,30 @@ void Diffusion::computeCommBytes() {
       int fromNode = obj_node_map(fromobj);
       int toNode = obj_node_map(toobj);
 
+      //store internal bytes in the last index pos ? -q
       if(fromNode == toNode)
         internalBytes += commData.bytes;
       else// External communication
         externalBytes += commData.bytes;
     }
+  // else {
+  //    CkPrintf("\nNot the kind of edge we want");
+  //  }
   } // end for
   CkPrintf("\nInternal comm bytes = %lu, External comm bytes = %lu", internalBytes, externalBytes);
 }
 
 void Diffusion::LoadBalancing() {
   if(thisIndex==0) computeCommBytes();
-  for(int i = 0; i < neighborCount; i++) {
-    if(toSendLoad[i]>0.0)
-      CkPrintf("\nNode-%d to send load %lf (%d objects) to node-%d",
-                              thisIndex, toSendLoad[i], (int)(toSendLoad[i]/0.1), sendToNeighbors[i]);
+//  if(thisIndex%4==0)
+  { //Overloaded PEs in this dataset
+    for(int i = 0; i < neighborCount; i++) {
+      if(toSendLoad[i]>0.0)
+      CkPrintf("\nNode-%d to send load %lf (%d objects) to node-%d", thisIndex, toSendLoad[i], (int)(toSendLoad[i]/0.1), sendToNeighbors[i]);
+    }
   }
   int n_objs = objects.size();
+//  if(thisIndex == 0)
   DEBUGL(("[SimNode#%d] GRD: Load Balancing w objects size = %d \n", thisIndex, n_objs));
   fflush(stdout);
 //  Iterate over the comm data and for each object, store its comm bytes
@@ -649,6 +539,9 @@ void Diffusion::LoadBalancing() {
 
   for(int i = 0; i < n_objs; i++) {
     int sum_bytes = 0;
+    //comm bytes with all neighbors
+    //if(i > objectComms.size()-1) continue;
+//    vector<int> comm_w_nbors = objectComms[i];
     //compute the sume of bytes of all comms for this obj
     for(int j = 0; j < objectComms[i].size(); j++)
         sum_bytes += objectComms[i][j];
@@ -699,61 +592,64 @@ void Diffusion::LoadBalancing() {
       continue;
     }
     vector<int> comm = objectComms[v_id];
-    int maxComm = 0;
-    int maxi = -1;
-    // TODO: Get the object vs communication cost ratio and work accordingly.
-    for(int i = 0 ; i < neighborCount; i++) {
-      // TODO: if not underloaded continue
-      if(toSendLoad[i] > 0 && currLoad <= toSendLoad[i]){//+threshold) {
-        maxi = i;break;
-        if(i!=SELF_IDX && (maxi == -1 || maxComm < comm[i])) {
-            maxi = i;
-           maxComm = comm[i];
+      int maxComm = 0;
+      int maxi = -1;
+      // TODO: Get the object vs communication cost ratio and work accordingly.
+      for(int i = 0 ; i < neighborCount; i++) {
+
+        // TODO: if not underloaded continue
+        if(toSendLoad[i] > 0 && currLoad <= toSendLoad[i]){//+threshold) {
+          maxi = i;break;
+          if(i!=SELF_IDX && (maxi == -1 || maxComm < comm[i])) {
+              maxi = i;
+             maxComm = comm[i];
+          }
         }
       }
-    }
-
-    if(maxi != -1)
+      if(maxi != -1)
       DEBUGL(("\n[PE-%d] maxi = %d", CkMyPe(), maxi));
 
-    if(maxi != -1) {
-      migrated_obj_count++;
-      int receiverNode = sendToNeighbors[maxi];
-      toSendLoad[maxi] -= currLoad;
-      totalSent += currLoad;
+      if(maxi != -1) {
+        migrated_obj_count++;
+        int node = sendToNeighbors[maxi];
+        toSendLoad[maxi] -= currLoad;
+        totalSent += currLoad;
         
-      if(thisIndex == 0) {
-        obj_to_pe_map[receiverNode].push_back(objects[v_id].getVertexId());
-        obj_to_pe_map[thisIndex][v_id] = -1;
-      } else {
-        Diffusion *diff0= diff_array(0).ckLocal();
-        diff0->obj_to_pe_map[receiverNode].push_back(objects[v_id].getVertexId());
-        diff0->obj_to_pe_map[thisIndex][v_id] = -1;
+        int receiverNodePE = node;
+//        thisProxy[receiverNodePE].informOfArrivingObj(objId, currPE, currLoad); //Inform the rank-0 on receiving node
+        //emig_objs.push_back(std::make_pair(objId, currPE, currLoad));
+//        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
+        if(thisIndex == 0) {
+          obj_to_pe_map[receiverNodePE].push_back(objects[v_id].getVertexId());
+          obj_to_pe_map[thisIndex][v_id] = -1;
+        } else {
+          Diffusion *diff0= diff_array(0).ckLocal();
+          diff0->obj_to_pe_map[receiverNodePE].push_back(objects[v_id].getVertexId());
+          diff0->obj_to_pe_map[thisIndex][v_id] = -1;
+        }
+        Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
+        diffRecv->my_loadAfterTransfer += currLoad;
+        my_loadAfterTransfer -= currLoad;
+        loadNeighbors[maxi] += currLoad;
       }
-      Diffusion *diffRecv = diff_array(receiverNode).ckLocal();
-      diffRecv->my_loadAfterTransfer += currLoad;
-      my_loadAfterTransfer -= currLoad;
-      loadNeighbors[maxi] += currLoad;
-    }
-    else {
-      DEBUGL(("[%d] maxi is negative currLoad %f \n", CkMyPe(), currLoad));
-    }
-  } //end of while
+      else {
+        DEBUGL(("[%d] maxi is negative currLoad %f \n", CkMyPe(), currLoad));
+      }
+    } //end of while
 #endif
-  my_load = my_loadAfterTransfer;
-  CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count);
-  if(thisIndex==0) {
-    for(int i=0;i<numNodes;i++) {
-      Diffusion *diffx = diff_array(i).ckLocal();
-      CkPrintf("\nSimNode#%d - After LB load = %lf", i, diffx->my_loadAfterTransfer);
+    my_load = my_loadAfterTransfer;
+    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count);
+    if(thisIndex==0) {
+      for(int i=0;i<numNodes;i++) {
+        Diffusion *diffx = diff_array(i).ckLocal();
+        CkPrintf("\nSimNode#%d - After LB load = %lf", i, diffx->my_loadAfterTransfer);
+      }
+      //This assumes thisIndex=0 executes last - fix this
+      computeCommBytes();
     }
-    //This assumes thisIndex=0 executes last - fix this
-    computeCommBytes();
-  }
 
-  contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
+    contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
 }
-
 void Diffusion::InitializeObjHeap(int* obj_arr,int n, int* gain_val) {
   for(int i = 0; i < n; i++) {
     obj_arr[i] = i;

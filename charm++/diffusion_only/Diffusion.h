@@ -35,14 +35,13 @@ public:
 
     void createObjs();
     void createObjList();
-    void createObjGraph();
     bool obj_on_node(int objId);
     void LoadBalancing();
     int get_obj_idx(int objHandleId);
     std::vector<int>map_obj_id;
 private:
     // aggregate load received
-    int itr; // iteration count
+    int itr;
     int temp_itr;
     int done;
     int statsReceived;
@@ -54,27 +53,20 @@ private:
     int received_nodes;
     long internalBytes, externalBytes;
     int* pe_obj_count;
-//    std::vector<double> *loadNeighbors;
     double *loadNeighbors;
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
     std::vector<CkVertex> objects;
-    std::vector<std::vector<int>> link_dest;
-    std::vector<std::vector<long>> link_bytes;
     std::vector<std::vector<int>> objectComms;
     std::vector<std::vector<int>> obj_to_pe_map;
     int neighborCount;
     double* toSendLoad;
     double* toReceiveLoad;
 
-//    int NX, NY;
     double avgLoadNeighbor;
 
     // heap
     int* obj_arr;
     int* gain_val;
-    std::vector<CkVertex> resdnt_objs;
-    std::vector<std::tuple<int, int, double>> immig_objs;
-    std::vector<int>pe_immig_assignment_map;
     std::vector<int> obj_heap;
     std::vector<int> heap_pos;
 
