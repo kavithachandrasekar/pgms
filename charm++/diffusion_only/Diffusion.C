@@ -11,7 +11,7 @@
  */
 #include "Diffusion.h"
 
-#include "Heap_Helper.C"
+#include "Heap_helper.C"
 #define DEBUGF(x) CmiPrintf x;
 #define DEBUGL(x) CmiPrintf x;
 #define DEBUGL2(x) /*CmiPrintf x*/;
@@ -41,8 +41,8 @@ int getNodeId(int x, int y, int z) {
 #define getY(node) (node % (NY * NZ) )/NZ
 #define getZ(node) node % NZ
 #else //2D
-#define NX 20
-#define NY 20
+#define NX 4//20
+#define NY 4//20
 #define NZ 1
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
@@ -177,10 +177,13 @@ void Diffusion::createObjs() {
   CkCallback cb(CkReductionTarget(Diffusion, pick3DNbors/*findNBors*/), thisProxy);
   contribute(cb);
 #else
-//  CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
-//  contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+#if 1
+  CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
+  contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+#else
   CkCallback cb(CkReductionTarget(Diffusion, pickCommNeighbors), thisProxy);
   contribute(cb);
+#endif
 #endif
 }
 

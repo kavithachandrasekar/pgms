@@ -147,17 +147,23 @@ void Diffusion::pickCommNeighbors() {
   for(int i=0;i<numNodes;i++)
     nbors[i] = -1;
   neighborCount = NUM_NEIGHBORS/2;
-//    DEBUGL(("\nedges = %lu", statsData->commData.size());
   for(int edge = 0; edge < statsData->commData.size(); edge++) {
     LDCommData &commData = statsData->commData[edge];
-    if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
+    //if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) )
+    {
       LDObjKey from = commData.sender;
       LDObjKey to = commData.receiver.get_destObj();
 
+      int fromobj = get_obj_idx(from.objID());
+      int toobj = get_obj_idx(to.objID());
+      if(fromobj == -1 || toobj == -1) continue;
+      int fromNode = obj_node_map(fromobj);
+      int toNode = obj_node_map(toobj);
+
       // Check the possible values of lastKnown. 
-      int toPE = commData.receiver.lastKnown(); //use map for simulation (this
+      //int toPE = commData.receiver.lastKnown(); //use map for simulation (this
       //is an issue for actual lb, since we will run into stale information)
-      int toNode = toPE;
+      //int toNode = toPE;
 //        DEBUGL(("\ntoPE = %d",toPE);
       if(thisIndex != toNode && toNode!= -1) {
         ebytes[toNode] += commData.bytes;
