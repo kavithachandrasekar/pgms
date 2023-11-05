@@ -23,10 +23,7 @@ public:
     void LoadReceived(int objId, int fromPE);
     void MaxLoad(double val);
     void AvgLoad(double val);
-    void findNBors(int do_again);
-    void pick3DNbors();
-    void proposeNbor(int nborId); 
-    void okayNbor(int agree, int nborId);
+
     void passPtrs(double *loadNbors, double *toSendLd,
                               double *toRecvLd, void (*func)(void*), void* obj);
     void computeCommBytes();
@@ -35,6 +32,22 @@ public:
 
     void createObjs();
     void createObjList();
+
+/* 3D neighbors */
+    void pick3DNbors();
+
+/* randomly picked neighbors */
+    void findNBors(int do_again);
+    void proposeNbor(int nborId);
+    void okayNbor(int agree, int nborId);
+
+/* comm graph-based neighbors */
+    void pickCommNeighbors();
+    void queryNeighbors();
+    void doneNborExchg();
+    void AddNeighbor(int node);
+    void sortArr(long arr[], int n, int *nbors);
+
     bool obj_on_node(int objId);
     void LoadBalancing();
     int get_obj_idx(int objHandleId);
@@ -51,9 +64,11 @@ private:
     int stats_msg_count;
     int numNodes;
     int received_nodes;
+    int notif;
     long internalBytes, externalBytes;
     int* pe_obj_count;
     double *loadNeighbors;
+    int *nbors;
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
     std::vector<CkVertex> objects;
     std::vector<std::vector<int>> objectComms;

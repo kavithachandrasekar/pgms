@@ -13,7 +13,7 @@
 
 #include "Heap_Helper.C"
 #define DEBUGF(x) CmiPrintf x;
-#define DEBUGL(x) /*CmiPrintf x*/;
+#define DEBUGL(x) CmiPrintf x;
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
@@ -175,10 +175,13 @@ void Diffusion::createObjs() {
   int do_again = 1;
 #ifdef NBORS_3D
   CkCallback cb(CkReductionTarget(Diffusion, pick3DNbors/*findNBors*/), thisProxy);
+  contribute(cb);
 #else
-  CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
+//  CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
+//  contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+  CkCallback cb(CkReductionTarget(Diffusion, pickCommNeighbors), thisProxy);
+  contribute(cb);
 #endif
-  contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
 }
 
 void Diffusion::passPtrs(double *loadNbors, double *toSendLd,

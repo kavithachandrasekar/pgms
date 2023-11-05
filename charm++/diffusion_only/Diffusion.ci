@@ -23,6 +23,8 @@ module Diffusion {
     entry [reductiontarget] void AvgLoad(double val);
     entry [reductiontarget] void findNBors(int do_again);
     entry [reductiontarget] void pick3DNbors();
+    entry [reductiontarget] void queryNeighbors();
+    entry [reductiontarget] void pickCommNeighbors();
     entry void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);
@@ -93,6 +95,39 @@ module Diffusion {
         contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
       }
     }
+
+
+// Neigbor list selection (from commgraph)
+    entry void notifyNeighbor(int isNbor, int node) {
+    //inc neighbor count upto 2xK
+    serial {
+      int toAdd = 0;
+
+      if(isNbor) {
+        toAdd = 1;
+        for(int k=0;k<neighborCount;k++)
+          if(nbors[k] == node) {
+            toAdd = 0;
+            break;
+          }
+      }
+
+      if(toAdd) {
+        DEBUGL(("\n[PE-%d]Adding %dth nbor node %d to me", CkMyPe(), neighborCount,node));
+        nbors[neighborCount++] = node;
+      }
+      notif++;
+      if(notif == numNodes) {
+//        notif = 0;
+        doneNborExchg();
+      }
+      else if(notif > numNodes)
+        DEBUGL(("\nToo many notificaations!! [PE-%d]", CkMyPe()));
+//      else
+//        DEBUGL(("\n[PE-%d,Node-%d] receieved %dth notification from node-%d", CkMyPe(), CkMyNodeDiff(), notif,node);
+      }
+    }
+
   };
 };
 
