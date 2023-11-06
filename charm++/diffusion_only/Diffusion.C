@@ -17,7 +17,7 @@
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NUM_NEIGHBORS 4//8//5//4
+#define NUM_NEIGHBORS 2//8//5//4
 
 #define ITERATIONS 100
 
@@ -41,8 +41,8 @@ int getNodeId(int x, int y, int z) {
 #define getY(node) (node % (NY * NZ) )/NZ
 #define getZ(node) node % NZ
 #else //2D
-#define NX 20
-#define NY 20
+#define NX 8//16//20//10//20
+#define NY 8//20//10//20
 #define NZ 1
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
@@ -179,7 +179,7 @@ void Diffusion::createObjs() {
   CkCallback cb(CkReductionTarget(Diffusion, pick3DNbors/*findNBors*/), thisProxy);
   contribute(cb);
 #else
-#if 0
+#if 1
   CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
 #else
@@ -215,8 +215,8 @@ void Diffusion::createObjList(){
 
   int total_objs = statsData->objData.size();//nx_in*ny_in*nz_in;
   pe_obj_count = new int[numNodes];
-  int overload_PE_count = 4;
-  int overload_factor = 5;
+  int overload_PE_count = numNodes/4;
+  int overload_factor = 4;
   int ov_pe[overload_PE_count];
   int interval = numNodes/overload_PE_count;
   for(int i=0;i<overload_PE_count;i++)
@@ -264,6 +264,10 @@ void Diffusion::createObjList(){
     for(int i=1;i<numNodes;i++) {
       pe_obj_count[i] += pe_obj_count[i-1];
       if(thisIndex == 0) {
+        if(i==numNodes-1 && pe_obj_count[i] < total_objs) {
+          CkPrintf("\nOn i=%d, updating obj count form %d to %d", i, pe_obj_count[i], total_objs);
+          pe_obj_count[i] = total_objs;
+        }
         for(int j=pe_obj_count[i-1];j<pe_obj_count[i];j++)
           obj_to_pe_map[i].push_back(j);
       }
@@ -428,10 +432,21 @@ void Diffusion::PseudoLoadBalancing() {
   }
 }
 
+#include "omp.h"
+
 void Diffusion::computeCommBytes() {
-  int internalBytes = 0;
-  int externalBytes = 0;
+  double internalBytes = 0.0;
+  double externalBytes = 0.0;
   CkPrintf("\nNumber of edges = %d", statsData->commData.size());
+/*
+  int internal_arr[4];
+  int external_arr[4];
+  for(int i=0;i<4;i++) {
+    internal_arr[i] = 0;
+    external_arr[i] = 0;
+  }
+*/
+//#pragma omp parallel for num_threads(4)
   for(int edge = 0; edge < statsData->commData.size(); edge++) {
     LDCommData &commData = statsData->commData[edge];
 //    if(!commData.from_proc() && commData.recv_type()==LD_OBJ_MSG)
@@ -446,15 +461,21 @@ void Diffusion::computeCommBytes() {
 
       //store internal bytes in the last index pos ? -q
       if(fromNode == toNode)
-        internalBytes += commData.bytes;
+        internalBytes+= commData.bytes;//internal_arr[omp_get_thread_num()] += commData.bytes;
       else// External communication
-        externalBytes += commData.bytes;
+        externalBytes += commData.bytes;//external_arr[omp_get_thread_num()] += commData.bytes;
     }
   // else {
   //    CkPrintf("\nNot the kind of edge we want");
   //  }
   } // end for
-  CkPrintf("\nInternal comm bytes = %lu, External comm bytes = %lu", internalBytes, externalBytes);
+/*
+  for(int i=0;i<4;i++) {
+    internalBytes += internal_arr[i];
+    externalBytes += external_arr[i];
+  }
+*/
+  CkPrintf("\nInternal comm Mbytes = %lf, External comm Mbytes = %lf", internalBytes/(1024*1024), externalBytes/(1024*1024));
 }
 
 void Diffusion::LoadBalancing() {

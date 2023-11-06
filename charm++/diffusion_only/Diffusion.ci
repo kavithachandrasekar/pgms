@@ -46,7 +46,7 @@ module Diffusion {
         // Send its load
         serial "Send loadInfo" {
           for(int i = 0; i < neighborCount; i++) {
-            CkPrintf("\nNode-%d sending to node%d idx(%d,%d)mod%d\n", thisIndex, sendToNeighbors[i], getX(sendToNeighbors[i]), getY(sendToNeighbors[i]), NY); fflush(stdout);
+//            CkPrintf("\nNode-%d sending to node%d idx(%d,%d)mod%d\n", thisIndex, sendToNeighbors[i], getX(sendToNeighbors[i]), getY(sendToNeighbors[i]), NY); fflush(stdout);
             thisProxy(sendToNeighbors[i]).ReceiveLoadInfo(itr, my_load, thisIndex);
           }
         }

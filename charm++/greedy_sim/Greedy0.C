@@ -9,15 +9,15 @@
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NX 20
-#define NY 20
+#define NX 32//20
+#define NY 32//20
 #define NZ 1
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
 #define getY(node) node%NY
 
 #define BYTES 512
-#define SIZE 1000
+#define SIZE 100000
 using std::vector;
 
 #ifdef STANDALONE_DIFF
@@ -244,8 +244,8 @@ void Greedy0::work() {
 void Greedy0::createObjList(){
   int total_objs = statsData->objData.size();
   pe_obj_count = new int[numNodes];
-  int overload_PE_count = 4;
-  int overload_factor = 5;
+  int overload_PE_count = numNodes/4;
+  int overload_factor = 4;
   int ov_pe[overload_PE_count];
   int interval = numNodes/overload_PE_count;
   for(int i=0;i<overload_PE_count;i++)
@@ -362,8 +362,8 @@ void Greedy0::AvgLoad(double val) {
 
 
 void Greedy0::computeCommBytes() {
-  int internalBytes = 0;
-  int externalBytes = 0;
+  double internalBytes = 0.0;
+  double externalBytes = 0.0;
   CkPrintf("\nNumber of edges = %d", statsData->commData.size());
   for(int edge = 0; edge < statsData->commData.size(); edge++) {
     LDCommData &commData = statsData->commData[edge];
@@ -383,7 +383,7 @@ void Greedy0::computeCommBytes() {
         externalBytes += commData.bytes;
     }
   } // end for
-  CkPrintf("\nInternal comm bytes = %lu, External comm bytes = %lu", internalBytes, externalBytes);
+  CkPrintf("\nInternal comm Mbytes = %lf, External comm Mbytes = %lf", internalBytes/(1024*1024), externalBytes/(1024*1024));
 }
 #include "Greedy0.def.h"
 
