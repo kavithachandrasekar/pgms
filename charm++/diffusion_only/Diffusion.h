@@ -98,7 +98,7 @@ private:
 public:
     BaseLB::LDStats *statsData;
     double my_load;
-    double my_loadAfterTransfer;
+    double my_load_after_transfer;
 };
 
 #endif /* _DistributedLB_H_ */

@@ -158,6 +158,7 @@ void Diffusion::pickCommNeighbors() {
       int toobj = get_obj_idx(to.objID());
       if(fromobj == -1 || toobj == -1) continue;
       int fromNode = obj_node_map(fromobj);
+      if(fromNode != thisIndex) continue;
       int toNode = obj_node_map(toobj);
 
       // Check the possible values of lastKnown. 
@@ -173,8 +174,11 @@ void Diffusion::pickCommNeighbors() {
       }
     }
   }
-//    for(int i=0;i<numNodes;i++)
-//      DEBUGL(("\n[PE-%d,Node-%d] ebytes[to node %d] = %lu", CkMyPe(), thisIndex, i, ebytes[i]);
+ 
+    for(int i=0;i<numNodes;i++) {
+      if(ebytes[i] > 0)
+      DEBUGL(("\n[SimNode-%d] ebytes[to node %d] = %lu", thisIndex, i, ebytes[i]));
+    }
   sortArr(ebytes, numNodes, nbors);
 //    DEBUGL(("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), thisIndex, nbors[0], nbors[1]);
   CkCallback cb(CkIndex_Diffusion::queryNeighbors(), thisProxy);
@@ -204,6 +208,9 @@ void Diffusion::doneNborExchg() {
     AddNeighbor(nbors[i]);
   }
   sendToNeighbors.resize(neighborCount);
+  loadNeighbors = new double[neighborCount];
+  toSendLoad = new double[neighborCount];
+  toReceiveLoad = new double[neighborCount];
   DEBUGL(("\n[PE-%d,Node-%d] my neighbors: %s (#%d neighbors)\n", CkMyPe(), thisIndex, nbor_nodes.c_str(), neighborCount));
   CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
   contribute(cb);

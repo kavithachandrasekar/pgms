@@ -15,7 +15,11 @@ module Diffusion {
     entry [reductiontarget] void done();
   };
 #endif
-
+/*
+  nodegroup NodeCache {
+    entry NodeCache();
+  }
+*/
   array [1D] Diffusion {
     entry Diffusion(int nx, int ny);
     entry [reductiontarget] void startDiffusion();
@@ -42,7 +46,7 @@ module Diffusion {
         // Send its load
         serial "Send loadInfo" {
           for(int i = 0; i < neighborCount; i++) {
-//            CkPrintf("\nNode-%d sending to node%d idx(%d,%d)mod%d\n", thisIndex, sendToNeighbors[i], getX(sendToNeighbors[i]), getY(sendToNeighbors[i]), NY); fflush(stdout);
+            CkPrintf("\nNode-%d sending to node%d idx(%d,%d)mod%d\n", thisIndex, sendToNeighbors[i], getX(sendToNeighbors[i]), getY(sendToNeighbors[i]), NY); fflush(stdout);
             thisProxy(sendToNeighbors[i]).ReceiveLoadInfo(itr, my_load, thisIndex);
           }
         }
@@ -122,7 +126,7 @@ module Diffusion {
         doneNborExchg();
       }
       else if(notif > numNodes)
-        DEBUGL(("\nToo many notificaations!! [PE-%d]", CkMyPe()));
+        DEBUGL(("\nToo many notificaations(count = %d)!! [SimNode%d]", notif, thisIndex));
 //      else
 //        DEBUGL(("\n[PE-%d,Node-%d] receieved %dth notification from node-%d", CkMyPe(), CkMyNodeDiff(), notif,node);
       }

@@ -13,11 +13,11 @@
 
 #include "Heap_helper.C"
 #define DEBUGF(x) CmiPrintf x;
-#define DEBUGL(x) CmiPrintf x;
+#define DEBUGL(x) /*CmiPrintf x*/;
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NUM_NEIGHBORS 4
+#define NUM_NEIGHBORS 4//8//5//4
 
 #define ITERATIONS 100
 
@@ -41,8 +41,8 @@ int getNodeId(int x, int y, int z) {
 #define getY(node) (node % (NY * NZ) )/NZ
 #define getZ(node) node % NZ
 #else //2D
-#define NX 4//20
-#define NY 4//20
+#define NX 20
+#define NY 20
 #define NZ 1
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
@@ -148,6 +148,7 @@ Diffusion::Diffusion(int nx, int ny){
   round = 0;
   itr = 0;
   numNodes = NX*NY*NZ;
+  notif = 0;
   if(thisIndex==0)
   {
     CkPrintf("%d,%d", nx,ny);
@@ -171,13 +172,14 @@ void Diffusion::createObjs() {
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
 
   sendToNeighbors.reserve(26);//NUM_NEIGHBORS);
+  sendToNeighbors.clear();
 
   int do_again = 1;
 #ifdef NBORS_3D
   CkCallback cb(CkReductionTarget(Diffusion, pick3DNbors/*findNBors*/), thisProxy);
   contribute(cb);
 #else
-#if 1
+#if 0
   CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
 #else
@@ -288,7 +290,7 @@ void Diffusion::createObjList(){
     nobj++;
   }
 
-  my_loadAfterTransfer = my_load;
+  my_load_after_transfer = my_load;
 //  CkPrintf("\nThe number of objects on this node(#%d) = %d", thisIndex, nobj);
 /*
   for(int nobj = 0; nobj < (int)(my_load); nobj++) {
@@ -388,7 +390,7 @@ void Diffusion::PseudoLoadBalancing() {
   for(int i = 0; i < neighborCount; i++) {
     nbor_nodes_load += " node-"+ std::to_string(sendToNeighbors[i])+"'s load= "+std::to_string(loadNeighbors[i]);
   }
-  DEBUGL2(("[PE-%d, Node-%d] Pseudo Load Balancing , iteration %d my_load %f my_loadAfterTransfer %f avgLoadNeighbor %f (split = %s)\n", CkMyPe(), CkMyNode(), itr, my_load, my_loadAfterTransfer, avgLoadNeighbor, nbor_nodes_load.c_str()));
+  DEBUGL2(("[PE-%d, Node-%d] Pseudo Load Balancing , iteration %d my_load %f my_load_after_transfer %f avgLoadNeighbor %f (split = %s)\n", CkMyPe(), CkMyNode(), itr, my_load, my_load_after_transfer, avgLoadNeighbor, nbor_nodes_load.c_str()));
   double threshold = THRESHOLD*avgLoadNeighbor/100.0;
   
   avgLoadNeighbor = (avgLoadNeighbor+my_load)/2;
@@ -411,7 +413,7 @@ void Diffusion::PseudoLoadBalancing() {
     totalOverload += threshold;
   else
     totalOverload = totalUnderLoad;
-  DEBUGL2(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d totalUndeload %f totalOverLoad %f my_loadAfterTransfer %f\n", CkMyPe(), itr, totalUnderLoad, totalOverload, my_loadAfterTransfer));
+  DEBUGL2(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d totalUndeload %f totalOverLoad %f my_load_after_transfer %f\n", CkMyPe(), itr, totalUnderLoad, totalOverload, my_load_after_transfer));
   for(int i = 0; i < neighborCount; i++) {
     if(totalOverload > 0 && totalUnderLoad > 0 && thisIterToSend[i] > 0) {
       DEBUGL2(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d(pe-%d) toSend %lf totalToSend %lf\n", CkMyPe(), itr, sendToNeighbors[i], CkNodeFirst(sendToNeighbors[i]), thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad));
@@ -460,8 +462,9 @@ void Diffusion::LoadBalancing() {
 //  if(thisIndex%4==0)
   { //Overloaded PEs in this dataset
     for(int i = 0; i < neighborCount; i++) {
-      if(toSendLoad[i]>0.0)
-      CkPrintf("\nNode-%d to send load %lf (%d objects) to node-%d", thisIndex, toSendLoad[i], (int)(toSendLoad[i]/0.1), sendToNeighbors[i]);
+      if(toSendLoad[i]>0.0) {
+        DEBUGL(("\nNode-%d to send load %lf (%d objects) to node-%d", thisIndex, toSendLoad[i], (int)(toSendLoad[i]/0.1), sendToNeighbors[i]));
+      }
     }
   }
   int n_objs = objects.size();
@@ -570,12 +573,13 @@ void Diffusion::LoadBalancing() {
   double totalSent = 0;
   int counter = 0;
 
-  if(thisIndex)  
-  DEBUGL(("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_loadAfterTransfer));
+  if(thisIndex) {
+    DEBUGL(("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer));
+  }
 
   int migrated_obj_count = 0;
 #if 1
-  while(my_loadAfterTransfer > 0) {
+  while(my_load_after_transfer > 0) {
     DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
     counter++;
     //pop the object id with the least gain (i.e least internal comm compared to ext comm)
@@ -634,8 +638,8 @@ void Diffusion::LoadBalancing() {
           diff0->obj_to_pe_map[thisIndex][v_id] = -1;
         }
         Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
-        diffRecv->my_loadAfterTransfer += currLoad;
-        my_loadAfterTransfer -= currLoad;
+        diffRecv->my_load_after_transfer += currLoad;
+        my_load_after_transfer -= currLoad;
         loadNeighbors[maxi] += currLoad;
       }
       else {
@@ -643,16 +647,18 @@ void Diffusion::LoadBalancing() {
       }
     } //end of while
 #endif
-    my_load = my_loadAfterTransfer;
-    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count);
+    my_load = my_load_after_transfer;
+    DEBUGL(("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count));
     if(thisIndex==0) {
       for(int i=0;i<numNodes;i++) {
         Diffusion *diffx = diff_array(i).ckLocal();
-        CkPrintf("\nSimNode#%d - After LB load = %lf", i, diffx->my_loadAfterTransfer);
+        DEBUGL(("\nSimNode#%d - After LB load = %lf", i, diffx->my_load_after_transfer));
       }
       //This assumes thisIndex=0 executes last - fix this
       computeCommBytes();
     }
+    CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
+    contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
 
     contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
 }
