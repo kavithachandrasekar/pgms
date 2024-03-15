@@ -17,7 +17,7 @@
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NUM_NEIGHBORS 2//8//5//4
+#define NUM_NEIGHBORS 4//8//5//4
 
 #define ITERATIONS 100
 
@@ -289,7 +289,7 @@ void Diffusion::createObjList(){
       continue;
     }
     double load = oData.wallTime * statsData->procs[pe].pe_speed;
-    objects.push_back(CkVertex(obj/*oData.handle.objID()*/, load, statsData->objData[obj].migratable, pe));
+    objects.push_back(Vertex(obj/*oData.handle.objID()*/, load, statsData->objData[obj].migratable, pe));
     my_load += load;
     nobj++;
   }
@@ -516,7 +516,7 @@ void Diffusion::LoadBalancing() {
   }
 
   int obj = 0;
-#if 0
+#if 1
   for(int edge = 0; edge < statsData->commData.size(); edge++) {
     LDCommData &commData = statsData->commData[edge];
     if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
