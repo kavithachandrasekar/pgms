@@ -52,6 +52,7 @@ public:
     void LoadBalancing();
     int get_obj_idx(int objHandleId);
     std::vector<int>map_obj_id;
+    std::vector<int>map_obid_pe;
 private:
     // aggregate load received
     int itr;

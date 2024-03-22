@@ -13,7 +13,7 @@
 
 #include "Heap_helper.C"
 #define DEBUGF(x) CmiPrintf x;
-#define DEBUGL(x) /*CmiPrintf x*/;
+#define DEBUGL(x) CmiPrintf x;
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
@@ -26,7 +26,7 @@
 
 #define THRESHOLD 2
 
-#define NUM_NODES 100
+#define NUM_NODES 32
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
 #define getY(node) node%NY
@@ -102,12 +102,14 @@ class Main : public CBase_Main {
       diff_obj->statsData = statsData;
       if(i==0) {
         diff_obj->map_obj_id.reserve(statsData->objData.size());
+        diff_obj->map_obid_pe.reserve(statsData->objData.size());
         for(int obj = 0; obj < statsData->objData.size(); obj++) {
           LDObjData &oData = statsData->objData[obj];
           if (!oData.migratable)
             continue;
-//          CkPrintf("\nSimNode-%d Adding %dth = %d", 0, obj, oData.objID());
+//          CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
           diff_obj->map_obj_id[obj] = oData.objID();
+          diff_obj->map_obid_pe[obj] = statsData->from_proc[obj];
         }
       }
     }
@@ -187,7 +189,8 @@ void Diffusion::createObjList(){
   my_load = 0.0;
   int start_node_obj_idx = 0; //this should be taken from map in stencil3d
 
-  int total_objs = statsData->objData.size();//nx_in*ny_in*nz_in;
+  int total_objs = statsData->objData.size();
+
   pe_obj_count = new int[numNodes];
   int overload_PE_count = numNodes/4;
   int overload_factor = 4;
@@ -263,7 +266,7 @@ void Diffusion::createObjList(){
       continue;
     }
     double load = oData.wallTime * statsData->procs[pe].pe_speed;
-    objects.push_back(Vertex(obj/*oData.handle.objID()*/, load, statsData->objData[obj].migratable, pe));
+    objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
     nobj++;
   }
@@ -279,10 +282,9 @@ void Diffusion::createObjList(){
 
 bool Diffusion::obj_on_node(int objId) {
   Diffusion *diff0= diff_array(0).ckLocal();
-  for(int idx = 0; idx < diff0->obj_to_pe_map[thisIndex].size(); idx++) {
-    if(diff0->obj_to_pe_map[thisIndex][idx] == objId)
-      return true;
-  }
+  int objidx = get_obj_idx(objId);
+//  CkPrintf("\nobjidx = %d", objidx);fflush(stdout);
+  if(thisIndex == diff0->map_obid_pe[get_obj_idx(objId)]) return true;
   return false;
 }
 
@@ -302,13 +304,7 @@ int Diffusion::get_obj_idx(int objHandleId) {
 
 int Diffusion::obj_node_map(int objId) {
   Diffusion *diff0= diff_array(0).ckLocal();
-  for(int node=0;node<numNodes;node++) {
-    for(int idx = 0; idx < diff0->obj_to_pe_map[node].size(); idx++) {
-      if(diff0->obj_to_pe_map[node][idx] == objId)
-        return node;
-    }
-  }
-  return -1;
+  return diff0->map_obid_pe[objId];
 }
 
 void Diffusion::startDiffusion() {
@@ -494,21 +490,26 @@ void Diffusion::LoadBalancing() {
     LDCommData &commData = statsData->commData[edge];
     if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
       LDObjKey from = commData.sender;
+
       if(!obj_on_node(from.objID())) continue;
       LDObjKey to = commData.receiver.get_destObj();
 
       int fromNode = thisIndex;//Node = chare here so using thisIndex
-      int toNode = obj_node_map(to.objID());
+
+      int toNode = obj_node_map(get_obj_idx(to.objID()));
+//      CkPrintf("\n[Edge] fromNode = %d, toNode = %d", fromNode, toNode);
 
       //store internal bytes in the last index pos ? -q
       if(fromNode == toNode) {
         int nborIdx = SELF_IDX;
         int fromObj = statsData->getHash(from);
         int toObj = statsData->getHash(to);
+#if 1
         //DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, statsData->n_objs));
         if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
         // lastKnown PE value can be wrong.
         if(toObj != -1 && toObj < n_objs) objectComms[toObj][nborIdx] += commData.bytes;
+#endif
         internalBytes += commData.bytes;
       }
       else { // External communication
@@ -609,7 +610,7 @@ void Diffusion::LoadBalancing() {
         }
       }
       if(maxi != -1)
-      DEBUGL(("\n[PE-%d] maxi = %d", CkMyPe(), maxi));
+      DEBUGL(("\n[PE-%d] maxi = %d", thisIndex, maxi));
 
       if(maxi != -1) {
         migrated_obj_count++;
@@ -621,6 +622,7 @@ void Diffusion::LoadBalancing() {
 //        thisProxy[receiverNodePE].informOfArrivingObj(objId, currPE, currLoad); //Inform the rank-0 on receiving node
         //emig_objs.push_back(std::make_pair(objId, currPE, currLoad));
 //        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
+/*
         if(thisIndex == 0) {
           obj_to_pe_map[receiverNodePE].push_back(objects[v_id].getVertexId());
           obj_to_pe_map[thisIndex][v_id] = -1;
@@ -629,6 +631,7 @@ void Diffusion::LoadBalancing() {
           diff0->obj_to_pe_map[receiverNodePE].push_back(objects[v_id].getVertexId());
           diff0->obj_to_pe_map[thisIndex][v_id] = -1;
         }
+*/
         Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
         diffRecv->my_load_after_transfer += currLoad;
         my_load_after_transfer -= currLoad;
