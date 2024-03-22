@@ -13,7 +13,7 @@
 
 #include "Heap_helper.C"
 #define DEBUGF(x) CmiPrintf x;
-#define DEBUGL(x) CmiPrintf x;
+#define DEBUGL(x) /*CmiPrintf x*/;
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
@@ -191,75 +191,10 @@ void Diffusion::createObjList(){
 
   int total_objs = statsData->objData.size();
 
-  pe_obj_count = new int[numNodes];
-  int overload_PE_count = numNodes/4;
-  int overload_factor = 4;
-  int ov_pe[overload_PE_count];
-  int interval = numNodes/overload_PE_count;
-  for(int i=0;i<overload_PE_count;i++)
-    ov_pe[i] = i*interval;//distr(gen);
-  int fake_pes = (numNodes-overload_PE_count) + (overload_PE_count*overload_factor);
-  int per_pe_obj = total_objs/fake_pes;
-  int per_overload_pe_obj = per_pe_obj*overload_factor;
-
-  if(thisIndex == 0) {
-    obj_to_pe_map.resize(numNodes);
-    for(int i=0;i<numNodes;i++)
-      obj_to_pe_map[i].reserve(total_objs/2);
-  }
-
-  if(thisIndex == 2)
-  CkPrintf("\nper_pe_obj=%d, per_overload_pe_obj=%d", per_pe_obj, per_overload_pe_obj);
-
-  for(int i=0;i<numNodes;i++) {
-    int flag = 0;
-    for(int j=0;j<overload_PE_count;j++)
-      if(i==ov_pe[j]) {
-        flag = 1;
-        break;
-      }
-    if(flag) {
-      pe_obj_count[i] = per_overload_pe_obj;
-//      if(thisIndex==0)
-//      CkPrintf("\npe_obj_count[%d] = %d", i, per_overload_pe_obj);
-    } 
-    else {
-      pe_obj_count[i] = per_pe_obj;
-//      if(thisIndex==0)
-//      CkPrintf("\npe_obj_count[%d] = %d", i, per_pe_obj);
-    }
-  }
-
-  int nobj = 0;
-    //compute prefix
-//    CkPrintf("\npe_obj_count[%d] = %d", 0, pe_obj_count[0]);
-    if(thisIndex == 0) {
-      //populate for node-0 here
-      for(int j=0; j<pe_obj_count[0];j++)
-        obj_to_pe_map[0].push_back(j);
-    }
-    for(int i=1;i<numNodes;i++) {
-      pe_obj_count[i] += pe_obj_count[i-1];
-      if(thisIndex == 0) {
-        if(i==numNodes-1 && pe_obj_count[i] < total_objs) {
-          CkPrintf("\nOn i=%d, updating obj count form %d to %d", i, pe_obj_count[i], total_objs);
-          pe_obj_count[i] = total_objs;
-        }
-        for(int j=pe_obj_count[i-1];j<pe_obj_count[i];j++)
-          obj_to_pe_map[i].push_back(j);
-      }
-
-//      CkPrintf("\npe_obj_count[%d] = %d", i, pe_obj_count[i]);
-    }
-
-  int obj = 0;
-  
-  if(thisIndex>0) obj = pe_obj_count[thisIndex-1];
-
-  for(; obj < pe_obj_count[thisIndex]/*statsData->objData.size()*/; obj++) {
+  for(int obj = 0 ; obj < statsData->objData.size(); obj++) {
     LDObjData &oData = statsData->objData[obj];
     int pe = statsData->from_proc[obj];
-    //if(pe != thisIndex) continue;
+    if(pe != thisIndex) continue;
     if (!oData.migratable) {
       if (!statsData->procs[pe].available)
         CmiAbort("Greedy0LB cannot handle nonmigratable object on an unavial processor!\n");
@@ -268,7 +203,6 @@ void Diffusion::createObjList(){
     double load = oData.wallTime * statsData->procs[pe].pe_speed;
     objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
-    nobj++;
   }
 
   my_load_after_transfer = my_load;
