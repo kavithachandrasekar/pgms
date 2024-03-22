@@ -26,9 +26,7 @@
 
 #define THRESHOLD 2
 
-#define NX 8//16//20//10//20
-#define NY 8//20//10//20
-#define NZ 1
+#define NUM_NODES 100
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
 #define getY(node) node%NY
@@ -95,11 +93,11 @@ class Main : public CBase_Main {
     statsData->deleteCommHash();
     statsData->makeCommHash();
   //  statsData->print();
-    diff_array = CProxy_Diffusion::ckNew(NX, NY, NX*NY);
+    diff_array = CProxy_Diffusion::ckNew(NUM_NODES, NUM_NODES);
   }
   void init(){
-    CkPrintf("\nDone init");
-    for(int i=0;i<NX*NY*NZ;i++) {
+//    CkPrintf("\nDone init");
+    for(int i=0;i<NUM_NODES;i++) {
       Diffusion *diff_obj= diff_array(i).ckLocal();
       diff_obj->statsData = statsData;
       if(i==0) {
@@ -123,19 +121,16 @@ class Main : public CBase_Main {
 };
 #endif
 
-Diffusion::Diffusion(int nx, int ny){
+Diffusion::Diffusion(int node_count){
   setMigratable(false);
-//  CkPrintf("\nNX,NY=%d,%d with chare %d,%d on PE-%d", nx, ny, thisIndex.x, thisIndex.y, CkMyPe());
-  //NX = nx;
-  //NY = ny;
   done = -1;
   round = 0;
   itr = 0;
-  numNodes = NX*NY*NZ;
+  numNodes = node_count;
   notif = 0;
   if(thisIndex==0)
   {
-    CkPrintf("%d,%d", nx,ny);
+    CkPrintf("Node count = %d", numNodes);
   }
   contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 }
@@ -159,17 +154,12 @@ void Diffusion::createObjs() {
   sendToNeighbors.clear();
 
   int do_again = 1;
-#ifdef NBORS_3D
-  CkCallback cb(CkReductionTarget(Diffusion, pick3DNbors/*findNBors*/), thisProxy);
-  contribute(cb);
-#else
 #if 1
   CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
 #else
   CkCallback cb(CkReductionTarget(Diffusion, pickCommNeighbors), thisProxy);
   contribute(cb);
-#endif
 #endif
 }
 
@@ -361,7 +351,7 @@ void Diffusion::MaxLoad(double val) {
 void Diffusion::AvgLoad(double val) {
   done++;
   if(thisIndex==0)
-  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/(NX*NY*NZ)));
+  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/NUM_NODES));
 #ifdef STANDALONE_DIFF
 //  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes); 
   if(done == 1) {
@@ -418,18 +408,11 @@ void Diffusion::PseudoLoadBalancing() {
 
 #include "omp.h"
 
-void Diffusion::computeCommBytes() {
+void Diffusion::computeCommBytes(int before) {
   double internalBytes = 0.0;
   double externalBytes = 0.0;
-  CkPrintf("\nNumber of edges = %d", statsData->commData.size());
-/*
-  int internal_arr[4];
-  int external_arr[4];
-  for(int i=0;i<4;i++) {
-    internal_arr[i] = 0;
-    external_arr[i] = 0;
-  }
-*/
+//  CkPrintf("\nNumber of edges = %d", statsData->commData.size());
+
 //#pragma omp parallel for num_threads(4)
   for(int edge = 0; edge < statsData->commData.size(); edge++) {
     LDCommData &commData = statsData->commData[edge];
@@ -459,11 +442,17 @@ void Diffusion::computeCommBytes() {
     externalBytes += external_arr[i];
   }
 */
-  CkPrintf("\nInternal comm Mbytes = %lf, External comm Mbytes = %lf", internalBytes/(1024*1024), externalBytes/(1024*1024));
+  char* tag = "Before";
+  if(!before)
+    tag = "After";
+  CkPrintf("\n[%s LB] Internal comm Mbytes = %lf, External comm Mbytes = %lf", tag, internalBytes/(1024*1024), externalBytes/(1024*1024));
 }
 
 void Diffusion::LoadBalancing() {
-  if(thisIndex==0) computeCommBytes();
+  if(thisIndex==0) {
+      CkPrintf("\n-----------------------------------------------");
+      computeCommBytes(1);
+  }
 //  if(thisIndex%4==0)
   { //Overloaded PEs in this dataset
     for(int i = 0; i < neighborCount; i++) {
@@ -658,7 +647,7 @@ void Diffusion::LoadBalancing() {
         DEBUGL(("\nSimNode#%d - After LB load = %lf", i, diffx->my_load_after_transfer));
       }
       //This assumes thisIndex=0 executes last - fix this
-      computeCommBytes();
+      computeCommBytes(0);
     }
     CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
     contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);

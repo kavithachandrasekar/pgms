@@ -23,7 +23,7 @@ void Diffusion::findNBors(int do_again) {
   int nborsNeeded = (NUM_NEIGHBORS - sendToNeighbors.size())/2;
   if(nborsNeeded > 0) {
     while(potentialNb < nborsNeeded) {
-      int potentialNbor = rand() % (NX*NY);
+      int potentialNbor = rand() % NUM_NODES;
       if(myNodeId != potentialNbor &&
           std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end()) {
         requests_sent++;

@@ -15,7 +15,7 @@ typedef void (*callback_function)(void*);
 class Diffusion : public CBase_Diffusion {
     Diffusion_SDAG_CODE
 public:
-    Diffusion(int nx, int ny);
+    Diffusion(int num_nodes);
     ~Diffusion();
     void AtSync(void);
     void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
@@ -26,7 +26,7 @@ public:
 
     void passPtrs(double *loadNbors, double *toSendLd,
                               double *toRecvLd, void (*func)(void*), void* obj);
-    void computeCommBytes();
+    void computeCommBytes(int wn);
 
     int obj_node_map(int objId);
 

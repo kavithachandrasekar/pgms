@@ -21,7 +21,7 @@ module Diffusion {
   }
 */
   array [1D] Diffusion {
-    entry Diffusion(int nx, int ny);
+    entry Diffusion(int num_nodes);
     entry [reductiontarget] void startDiffusion();
     entry [reductiontarget] void MaxLoad(double val);
     entry [reductiontarget] void AvgLoad(double val);
