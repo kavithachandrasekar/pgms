@@ -26,28 +26,12 @@
 
 #define THRESHOLD 2
 
-//#define NBORS_3D
-
-#ifdef NBORS_3D
-#define NX 8
-#define NY 8
-#define NZ 8
-int getNodeId(int x, int y, int z) {
-  if(x < 0 || y < 0 || z < 0) return -1;
-  if(x >= NX || y >= NY || z >= NZ) return -1;
-  return  x * NY * NZ + y * NZ + z;
-}
-#define getX(node) (int)floor(node / (NY * NZ))
-#define getY(node) (node % (NY * NZ) )/NZ
-#define getZ(node) node % NZ
-#else //2D
 #define NX 8//16//20//10//20
 #define NY 8//20//10//20
 #define NZ 1
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
 #define getY(node) node%NY
-#endif
 
 #define BYTES 512
 #define SIZE 1000
@@ -533,11 +517,9 @@ void Diffusion::LoadBalancing() {
         int fromObj = statsData->getHash(from);
         int toObj = statsData->getHash(to);
         //DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, statsData->n_objs));
-        objectComms[fromObj][nborIdx] += commData.bytes;
+        if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
         // lastKnown PE value can be wrong.
-        if(toObj != -1) {
-          objectComms[toObj][nborIdx] += commData.bytes;
-        }
+        if(toObj != -1 && toObj < n_objs) objectComms[toObj][nborIdx] += commData.bytes;
         internalBytes += commData.bytes;
       }
       else { // External communication
@@ -546,8 +528,8 @@ void Diffusion::LoadBalancing() {
           nborIdx = EXT_IDX;//Store in last index if it is external bytes going to non-immediate neighbors
         else {
           int fromObj = statsData->getHash(from);
-          //DEBUGL(("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
-          objectComms[fromObj][nborIdx] += commData.bytes;
+          //CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
+          if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
           obj++;
         }
         externalBytes += commData.bytes;
