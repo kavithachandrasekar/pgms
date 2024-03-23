@@ -233,7 +233,7 @@ int Diffusion::get_obj_idx(int objHandleId) {
       return i;
     }
   }
-//  CkPrintf("\nNot found");
+  CkPrintf("\nNot found");
   return -1;
 }
 
@@ -499,7 +499,7 @@ void Diffusion::LoadBalancing() {
   double totalSent = 0;
   int counter = 0;
 
-  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
+//  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
 
   int migrated_obj_count = 0;
 #if 1
@@ -569,7 +569,7 @@ void Diffusion::LoadBalancing() {
     } //end of while
 #endif
     my_load = my_load_after_transfer;
-    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count);
+//    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count);
     CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
     contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
     if(thisIndex==0) {
