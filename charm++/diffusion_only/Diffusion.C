@@ -26,7 +26,7 @@
 
 #define THRESHOLD 2
 
-#define NUM_NODES 216//32//216//32//216//128//32
+#define NUM_NODES 32//216//32//216//32//216//128//32
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
 #define getY(node) node%NY
@@ -291,6 +291,7 @@ void Diffusion::finishLB(){
   contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
 }
 void Diffusion::MaxLoad(double val) {
+  if(finished)computeCommBytes(0);
   DEBUGF(("\n[Iter: %d] Max PE load = %lf", itr, val));fflush(stdout);
   if(finished) mainProxy.done();
 }
@@ -601,7 +602,6 @@ void Diffusion::LoadBalancing() {
       }
       //CkPrintf("\nMax load = %lf", max);
       //This assumes thisIndex=0 executes last - fix this
-      computeCommBytes(0);
     }
 
     //contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
