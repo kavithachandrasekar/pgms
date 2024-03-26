@@ -23,6 +23,7 @@ public:
     void LoadReceived(int objId, int fromPE);
     void MaxLoad(double val);
     void AvgLoad(double val);
+    void finishLB();
 
     void passPtrs(double *loadNbors, double *toSendLd,
                               double *toRecvLd, void (*func)(void*), void* obj);
@@ -74,6 +75,7 @@ private:
     std::vector<Vertex> objects;
     std::vector<std::vector<int>> objectComms;
     int neighborCount;
+    bool finished;
     double* toSendLoad;
     double* toReceiveLoad;
 

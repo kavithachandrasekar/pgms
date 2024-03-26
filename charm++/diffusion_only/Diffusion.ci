@@ -29,6 +29,7 @@ module Diffusion {
     entry [reductiontarget] void pick3DNbors();
     entry [reductiontarget] void queryNeighbors();
     entry [reductiontarget] void pickCommNeighbors();
+    entry [reductiontarget] void finishLB();
     entry void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);
@@ -66,15 +67,15 @@ module Diffusion {
         // Calculate average and do pseudo load balancing
         serial "Pseudo LB" {
           avgLoadNeighbor = average();
-          DEBUGL2(("[PE-%d] Received all loads of node, avg is %f and my_load %f \n", CkMyPe(), avgLoadNeighbor, my_load));
+          DEBUGL2(("[PE-%d] Received all loads of node, avg is %f and my_load %f \n", thisIndex, avgLoadNeighbor, my_load));
           PseudoLoadBalancing();
         }
 
         for(temp_itr = 0; temp_itr < neighborCount; temp_itr++) {
           when PseudoLoad[itr](int itr, double load, int node) serial {
             my_load += load;
-            if(itr == ITERATIONS-1)
-            DEBUGL2(("\nMy load after diffusion %lf", my_load));
+//            if(itr == ITERATIONS-1)
+            DEBUGL2(("\n[Itr-%d]My [Node-%d] load after diffusion %lf (added %lf)", itr, thisIndex, my_load, load));
             int pos = findNborIdx(node);
             if(pos == -1) {
               DEBUGE(("\n[2]Error in pos -1 for nodeid %d", node));
