@@ -114,6 +114,21 @@ class Main : public CBase_Main {
         }
       }
     }
+    CkPrintf("\ncomm edges count = %d", statsData->commData.size());
+    Diffusion *diff_obj0 = diff_array(0).ckLocal();
+
+    for(int edge = 0; edge < statsData->commData.size(); edge++) {
+      LDCommData &commData = statsData->commData[edge];
+      if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
+        LDObjKey from = commData.sender;
+
+        int fromNode = diff_obj0->obj_node_map(diff_obj0->get_obj_idx(from.objID()));
+        Diffusion *diff_obj = diff_array(fromNode).ckLocal();
+        diff_obj->edgeCount++;
+        diff_obj->edge_indices.push_back(edge);
+      }
+    }
+
     diff_array.AtSync();
   }
 
@@ -132,6 +147,8 @@ Diffusion::Diffusion(int node_count){
   numNodes = node_count;
   notif = 0;
   finished = false;
+  edgeCount = 0;
+  edge_indices.reserve(10000);
   if(thisIndex==0)
   {
     CkPrintf("Node count = %d", numNodes);
@@ -440,13 +457,15 @@ void Diffusion::LoadBalancing() {
   }
 
   int obj = 0;
-#if 0
-  for(int edge = 0; edge < statsData->commData.size(); edge++) {
-    LDCommData &commData = statsData->commData[edge];
+#if 1
+  //if(thisIndex==0)
+  {
+  for(int edge = 0; edge < edge_indices.size()/*statsData->commData.size()*/; edge++) {
+    
+    LDCommData &commData = statsData->commData[edge_indices[edge]];
     if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
       LDObjKey from = commData.sender;
 
-      if(!obj_on_node(from.objID())) continue;
       LDObjKey to = commData.receiver.get_destObj();
 
       int fromNode = thisIndex;//Node = chare here so using thisIndex
@@ -463,7 +482,6 @@ void Diffusion::LoadBalancing() {
         if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
         // lastKnown PE value can be wrong.
         if(toObj != -1 && toObj < n_objs) objectComms[toObj][nborIdx] += commData.bytes;
-        internalBytes += commData.bytes;
       }
       else { // External communication
         int nborIdx = findNborIdx(toNode);
@@ -475,10 +493,11 @@ void Diffusion::LoadBalancing() {
           if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
           obj++;
         }
-        externalBytes += commData.bytes;
       }
+
     }
   } // end for
+  }
 #endif
 
   // calculate the gain value, initialize the heap.
@@ -529,10 +548,11 @@ void Diffusion::LoadBalancing() {
     //counter++;
     //pop the object id with the least gain (i.e least internal comm compared to ext comm)
 
-    v_id = counter++;//objectsheap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
+//    v_id = counter++;
+    v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
 
     /*If the heap becomes empty*/
-    if(v_id == objects.size()){//v_id==-1) {
+    if(v_id == -1) {//objects.size()){//v_id==-1) {
       DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
       break;
     }
@@ -554,7 +574,7 @@ void Diffusion::LoadBalancing() {
 
         // TODO: if not underloaded continue
         if(toSendLoad[l] > 1.0 && currLoad <= toSendLoad[l]*1.2){//+threshold) {
-          maxi = l;break;
+          maxi = l;//break;
           if(i!=SELF_IDX && (maxi == -1 || maxComm < comm[i])) {
               maxi = i;
              maxComm = comm[i];

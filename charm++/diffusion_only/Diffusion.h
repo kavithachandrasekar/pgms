@@ -54,6 +54,8 @@ public:
     int get_obj_idx(int objHandleId);
     std::vector<int>map_obj_id;
     std::vector<int>map_obid_pe;
+    int edgeCount;
+    std::vector<int> edge_indices;
 private:
     // aggregate load received
     int itr;
@@ -67,7 +69,6 @@ private:
     int numNodes;
     int received_nodes;
     int notif;
-    long internalBytes, externalBytes;
     int* pe_obj_count;
     double *loadNeighbors;
     int *nbors;
