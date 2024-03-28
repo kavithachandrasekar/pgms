@@ -575,9 +575,9 @@ void Diffusion::LoadBalancing() {
         // TODO: if not underloaded continue
         if(toSendLoad[l] > 1.0 && currLoad <= toSendLoad[l]*1.2){//+threshold) {
           maxi = l;//break;
-          if(i!=SELF_IDX && (maxi == -1 || maxComm < comm[i])) {
-              maxi = i;
-             maxComm = comm[i];
+          if(l!=SELF_IDX && (maxi == -1 || maxComm < comm[l])) {
+              maxi = l;
+             maxComm = comm[l];
           }
         }
         l = (l+1)%neighborCount;
