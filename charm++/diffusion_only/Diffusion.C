@@ -17,16 +17,15 @@
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NUM_NEIGHBORS 4//8//5//4
+#define NUM_NEIGHBORS 4
 
-#define ITERATIONS 40
+#define ITERATIONS 80
 
 #define SELF_IDX NUM_NEIGHBORS
 #define EXT_IDX NUM_NEIGHBORS+1
 
 #define THRESHOLD 2
 
-#define NUM_NODES 32//216//32//216//32//216//128//32
 #define getNodeId(x,y, NY) x * NY + y
 #define getX(node) (int)floor(node/NY)
 #define getY(node) node%NY
@@ -44,6 +43,7 @@ using std::vector;
 
 class Main : public CBase_Main {
   BaseLB::LDStats *statsData;
+  int numNodes;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
@@ -92,12 +92,13 @@ class Main : public CBase_Main {
     // Generate a hash with key object id, value index in objs vector
     statsData->deleteCommHash();
     statsData->makeCommHash();
+    numNodes = statsData->procs.size();
   //  statsData->print();
-    diff_array = CProxy_Diffusion::ckNew(NUM_NODES, NUM_NODES);
+    diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
   }
   void init(){
 //    CkPrintf("\nDone init");
-    for(int i=0;i<NUM_NODES;i++) {
+    for(int i=0;i<numNodes;i++) {
       Diffusion *diff_obj= diff_array(i).ckLocal();
       diff_obj->statsData = statsData;
       if(i==0) {
@@ -153,7 +154,7 @@ void Diffusion::createObjs() {
   CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
 
-  sendToNeighbors.reserve(26);//NUM_NEIGHBORS);
+  sendToNeighbors.reserve(100);//NUM_NEIGHBORS);
   sendToNeighbors.clear();
 
   int do_again = 1;
@@ -204,7 +205,7 @@ void Diffusion::createObjList(){
       continue;
     }
     double load = 1.0;//oData.wallTime * statsData->procs[pe].pe_speed;
-    if(pe%2==0) load = 2.0;
+    if(pe%2==0) load = 3.5;
     objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
   }
@@ -221,9 +222,7 @@ void Diffusion::createObjList(){
 
 bool Diffusion::obj_on_node(int objId) {
   Diffusion *diff0= diff_array(0).ckLocal();
-  int objidx = get_obj_idx(objId);
-//  CkPrintf("\nobjidx = %d", objidx);fflush(stdout);
-  if(thisIndex == diff0->map_obid_pe[get_obj_idx(objId)]) return true;
+  if(thisIndex == diff0->map_obid_pe[objId]) return true;
   return false;
 }
 
@@ -286,7 +285,8 @@ bool Diffusion::AggregateToSend() {
 
 void Diffusion::finishLB(){
   finished = true;
-  //CkPrintf("\nNode-%d, max load = %lf", thisIndex, my_load_after_transfer);
+  my_load = my_load_after_transfer;
+//  CkPrintf("\nNode-%d, my load = %lf", thisIndex, my_load_after_transfer);
   CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
   contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
 }
@@ -299,7 +299,7 @@ void Diffusion::MaxLoad(double val) {
 void Diffusion::AvgLoad(double val) {
   done++;
   if(thisIndex==0)
-  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/NUM_NODES));
+  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/numNodes));
 #ifdef STANDALONE_DIFF
 //  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes); 
   if(done == 1) {
@@ -522,47 +522,51 @@ void Diffusion::LoadBalancing() {
 //  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
 
   int migrated_obj_count = 0;
+  int n_count = 0;
 #if 1
-  while(my_load_after_transfer > 0) {
+  while(my_load_after_transfer > 0.0) {
     DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
-    counter++;
+    //counter++;
     //pop the object id with the least gain (i.e least internal comm compared to ext comm)
 
-    v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
+    v_id = counter++;//objectsheap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
 
     /*If the heap becomes empty*/
-    if(v_id==-1) {
+    if(v_id == objects.size()){//v_id==-1) {
       DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
       break;
     }
     int objHandle = objects[v_id].getVertexId(); 
-    if(!obj_on_node(objects[v_id].getVertexId())) continue;
+    if(!obj_on_node(get_obj_idx(objHandle))) continue;
 
-    DEBUGL(("\n On SimNode-%d, popped v_id = %d", thisIndex, v_id));
+//    CkPrintf("\n On SimNode-%d, popped v_id = %d (handle%d)", thisIndex, v_id, objHandle);
 
     double currLoad = objects[v_id].getVertexLoad();
     if(!objects[v_id].isMigratable()) {
-      DEBUGL(("not migratable \n"));
+      //CkPrintf("not migratable \n");
       continue;
     }
     vector<int> comm = objectComms[v_id];
       int maxComm = 0;
       int maxi = -1;
       // TODO: Get the object vs communication cost ratio and work accordingly.
-      for(int i = 0 ; i < neighborCount; i++) {
+      for(int i = 0, l=n_count ; i < neighborCount; i++) {
 
         // TODO: if not underloaded continue
-        if(toSendLoad[i] > 0 && currLoad <= toSendLoad[i]*1.2){//+threshold) {
-          maxi = i;break;
+        if(toSendLoad[l] > 1.0 && currLoad <= toSendLoad[l]*1.2){//+threshold) {
+          maxi = l;break;
           if(i!=SELF_IDX && (maxi == -1 || maxComm < comm[i])) {
               maxi = i;
              maxComm = comm[i];
           }
         }
+        l = (l+1)%neighborCount;
       }
+      n_count = (n_count+1)%neighborCount;
+/*
       if(maxi != -1)
-      DEBUGL(("\n[PE-%d] maxi = %d", thisIndex, maxi));
-
+        CkPrintf("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi,sendToNeighbors[maxi],currLoad,toSendLoad[maxi]);
+*/
       if(maxi != -1) {
         migrated_obj_count++;
         int node = sendToNeighbors[maxi];
@@ -588,21 +592,17 @@ void Diffusion::LoadBalancing() {
       }
     } //end of while
 #endif
-    my_load = my_load_after_transfer;
+    for(int i = 0 ; i < neighborCount; i++) {
+        double to_send_total = 0.0;
+        if(toSendLoad[i] > 0.0) {
+          to_send_total += toSendLoad[i];
+//          CkPrintf("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total,sendToNeighbors[i]);
+        }
+    }
 //    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);
     CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
 
     contribute(cbm);//sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
-    if(thisIndex==0) {
-      double max = 0.0;
-      for(int i=0;i<numNodes;i++) {
-        Diffusion *diffx = diff_array(i).ckLocal();
-        if(max < diffx->my_load_after_transfer) max = diffx->my_load_after_transfer;
-//        CkPrintf("\nSimNode#%d - After LB load = %lf", i, diffx->my_load_after_transfer);
-      }
-      //CkPrintf("\nMax load = %lf", max);
-      //This assumes thisIndex=0 executes last - fix this
-    }
 
     //contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
 }
