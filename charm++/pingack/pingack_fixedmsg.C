@@ -5,7 +5,10 @@
 #define MSG_COUNT 1000
 
 #define nTRIALS_PER_SIZE 10
-#define WORK_ITERATIONS 3
+#define START_TRIAL 4
+#define END_TRIAL 8
+#define WORK_ITERATIONS 16//4//1
+#define WORK_ENABLED 0
 
 double total_time[nTRIALS_PER_SIZE];  // times are stored in us
 double process_time[nTRIALS_PER_SIZE];
@@ -13,7 +16,7 @@ double send_time[nTRIALS_PER_SIZE];
 
 #include "pingack_fixedmsg.decl.h"
 
-#define BIGMSG_SIZE 4096
+#define BIGMSG_SIZE 1024
 //#define PE0_NO_SEND 1
 
 class PingMsg : public CMessage_PingMsg
@@ -38,14 +41,15 @@ public:
     gid.start();
     delete m;
   };
-
   void maindone(void)
   {
     if(warmup) {
       warmup = false;
       gid.start();
-    } else
+    } else {
+      CkPrintf("\nDone!!!");
       CkExit();
+    }
   };
 };
 
@@ -55,6 +59,7 @@ class PingG : public CBase_PingG
   bool printResult; 
   int recv_count, ack_count,trial;
   double send_time_pe, process_time_pe, total_time_pe;
+  double work_time[MSG_COUNT];
   PingMsg **msg_collection;
 public:
   PingG()
@@ -69,36 +74,40 @@ public:
 
   double get_average(double arr[]) {
     double tot = 0;
-    for (int i = 0; i < nTRIALS_PER_SIZE; ++i) tot += arr[i];
-    return tot/nTRIALS_PER_SIZE;
+    for (int i = START_TRIAL; i < END_TRIAL; ++i) {
+      CkPrintf("\nTrial[%d] time = %.4f", i, arr[i]);
+      tot += arr[i];
+    }
+    return tot/(END_TRIAL-START_TRIAL);
   }
 
-  double get_stdev(double arr[]) {
+  double get_stdev(double arr[], double avg) {
     double stdev = 0.0;
-    double avg = get_average(arr);
-    for (int i = 0; i < nTRIALS_PER_SIZE; ++i)
+    for (int i = START_TRIAL; i < END_TRIAL; ++i)
       stdev += pow(arr[i] - avg, 2);
-    stdev = sqrt(stdev / nTRIALS_PER_SIZE);
+    stdev = sqrt(stdev / (END_TRIAL-START_TRIAL));
     return stdev;
   }
 
   double get_max(double arr[]) {
-    double max = arr[0];
-    for (int i = 1; i < nTRIALS_PER_SIZE; ++i)
+    double max = arr[START_TRIAL];
+    for (int i = START_TRIAL+1; i < nTRIALS_PER_SIZE; ++i)
       if (arr[i] > arr[0]) max = arr[i];
         return max;
   }
 
   void print_stats_pe1() {
+#if 0
     CkPrintf("PE-1: Send time and process time (msg_size=%d)\n", BIGMSG_SIZE);
     CkPrintf("Format: {#PEs},{msg_size},{averages*2},{stdevs*2},{maxs*2}\n");
     CkPrintf("DATA,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n", CkNumPes(), BIGMSG_SIZE, get_average(send_time), get_average(process_time),
                                 get_stdev(send_time), get_stdev(process_time), get_max(send_time), get_max(process_time));
     thisProxy[0].print_results();
+#endif
   }
   void print_results() {
     CkPrintf("PE-0: Roundtrip Time (msg_size=%d)\n", BIGMSG_SIZE);
-    for (int i = 0; i < nTRIALS_PER_SIZE; ++i) {
+    for (int i = START_TRIAL; i < nTRIALS_PER_SIZE; ++i) {
       // DEBUG: print without trial number:
       // CmiPrintf("%f\n%f\n%f\n", send_time[i], process_time[i], total_time[i]);
 
@@ -107,7 +116,8 @@ public:
     }
     // print data:
     CkPrintf("Format: {#PEs},{msg_size},{average},{stdev},{max}\n");
-    CkPrintf("DATA,%d,%d,%.4f,%.4f,%.4f\n", CkNumPes(), BIGMSG_SIZE, get_average(total_time), get_stdev(total_time), get_max(total_time));
+    double avg = get_average(total_time);
+    CkPrintf(" DATA,%d,%d,%d(MSG_COUNT),WORK(%d/%d), %.4f,%.4f,%.4f\n", CkNumPes(), BIGMSG_SIZE, MSG_COUNT, WORK_ITERATIONS, WORK_ENABLED, avg, get_stdev(total_time, avg), get_max(total_time));
     mainProxy.maindone();
   }
 
@@ -128,6 +138,7 @@ public:
   }
 
   void send_msgs() {
+    total_time_pe = CkWallTimer();
     for(int k = 0; k < MSG_COUNT; k++) {
       double create_time = CkWallTimer();
       PingMsg *msg = msg_collection[k];
@@ -154,33 +165,38 @@ public:
     *(long *)result = tmp + *(long *)result;
   }
 
+  double avg_work_time() {
+    double sum = 0.0;
+    for(int i=0;i<MSG_COUNT;i++)
+      sum += work_time[i];
+    return sum/MSG_COUNT;
+  }
+
   void bigmsg_recv(PingMsg *msg)
   {
     long sum = 0;
     long result = 0;
     double num_ints = BIGMSG_SIZE;
     double st_time = 0.0;
-    double work_time = 0.0;
+    work_time[recv_count] = 0.0;
     double exp_avg = (num_ints - 1) / 2;
+#if DEBUG
+    if(CkMyPe()==1+CkNumPes()/2)
+      st_time = CkWallTimer();
+#endif
     for (int i = 0; i < num_ints; ++i) {
       sum += msg->payload[i];
-      if(i%6 == 0)
-      {
-#if DEBUG
-        if(CkMyPe()==1+CkNumPes()/2)
-          st_time = CkWallTimer();
-#endif
+#if WORK_ENABLED
         do_work(0, WORK_ITERATIONS, &result);
-#if DEBUG
-        if(CkMyPe()==1+CkNumPes()/2)
-          work_time += CkWallTimer()-st_time;
 #endif
-      }
     }
+
 #if DEBUG
-    if(CkMyPe()==1+CkNumPes()/2 && recv_count%40==0)
-      CkPrintf("\nTime of work per int =%lf", work_time);
+    if(CkMyPe()==1+CkNumPes()/2) {
+      work_time[recv_count] += (CkWallTimer()-st_time);
+    }
 #endif
+
     if(result<0) {
       CmiPrintf("\nError in computation!!");
     }
@@ -194,6 +210,10 @@ public:
     if(++recv_count == MSG_COUNT) {
       recv_count = 0;
       thisProxy[0].pe0ack();//Send ack to PE-0
+#if DEBUG
+      if(CkMyPe()==1+CkNumPes()/2)
+      CkPrintf("\nTime of work[%d] per msg =%lf", CkMyPe(), avg_work_time());
+#endif
     }
   }
 
@@ -211,7 +231,7 @@ public:
       if(++trial == nTRIALS_PER_SIZE || warmUp) {
         trial = 0;
         if(!warmUp) {
-          thisProxy[1].print_stats_pe1();
+          print_results();//thisProxy[1].print_stats_pe1();
         } else {
           CkPrintf("Warmup done\n");
           warmUp = !warmUp;
