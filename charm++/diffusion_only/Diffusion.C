@@ -406,7 +406,7 @@ void Diffusion::computeCommBytes(int before) {
 //#pragma omp parallel for num_threads(4)
   for(int edge = 0; edge < statsData->commData.size(); edge++) {
     LDCommData &commData = statsData->commData[edge];
-//    if(!commData.from_proc() && commData.recv_type()==LD_OBJ_MSG)
+    if(!commData.from_proc() && commData.recv_type()==LD_OBJ_MSG)
     {
       LDObjKey from = commData.sender;
       LDObjKey to = commData.receiver.get_destObj();
@@ -510,12 +510,10 @@ void Diffusion::LoadBalancing() {
         int nborIdx = findNborIdx(toNode);
         if(nborIdx == -1)
           nborIdx = EXT_IDX;//Store in last index if it is external bytes going to non-immediate neighbors
-        else {
-          int fromObj = statsData->getHash(from);
-          //CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
-          if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
-          obj++;
-        }
+        int fromObj = statsData->getHash(from);
+        //CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
+        if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
+        obj++;
       }
 
     }
@@ -597,7 +595,7 @@ void Diffusion::LoadBalancing() {
 
         // TODO: if not underloaded continue
         if(toSendLoad[l] > 1.0 && currLoad <= toSendLoad[l]*1.2){//+threshold) {
-          maxi = l;//break;
+          //maxi = l;//break;
           if(l!=SELF_IDX && (maxi == -1 || maxComm < comm[l])) {
               maxi = l;
              maxComm = comm[l];
