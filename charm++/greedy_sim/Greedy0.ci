@@ -17,7 +17,7 @@ module Greedy0 {
 #endif
 
   array [1D] Greedy0 {
-    entry Greedy0(int nx, int ny);
+    entry Greedy0();
     entry [reductiontarget] void work();
     entry [reductiontarget] void MaxLoad(double val);
     entry [reductiontarget] void AvgLoad(double val);

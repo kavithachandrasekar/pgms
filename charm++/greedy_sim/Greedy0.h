@@ -15,7 +15,7 @@ typedef void (*callback_function)(void*);
 class Greedy0 : public CBase_Greedy0 {
     Greedy0_SDAG_CODE
 public:
-    Greedy0(int nx, int ny);
+    Greedy0();
     ~Greedy0();
     void AtSync(void);
     void work();
@@ -29,22 +29,21 @@ public:
     void createObjList();
     int get_obj_idx(int objHandleId);
     std::vector<int>map_obj_id;
+    std::vector<int>map_obid_pe;
+    int numNodes;
 private:
     class ProcLoadGreater;
     class ObjLoadGreater;
 
     int stats_msg_count;
-    int numNodes;
     int* pe_obj_count;
-    std::vector<CkVertex> objects;
+    std::vector<Vertex> objects;
     std::vector<std::vector<int>> objectComms;
-    std::vector<std::vector<int>> obj_to_pe_map;
     int neighborCount;
     int done;
     double* toSendLoad;
     double* toReceiveLoad;
 
-//    int NX, NY;
     double avgLoadNeighbor;
 
 

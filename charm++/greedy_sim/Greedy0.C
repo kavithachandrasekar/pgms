@@ -9,14 +9,6 @@
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NX 32//20
-#define NY 32//20
-#define NZ 1
-#define getNodeId(x,y, NY) x * NY + y
-#define getX(node) (int)floor(node/NY)
-#define getY(node) node%NY
-
-#define BYTES 512
 #define SIZE 100000
 using std::vector;
 
@@ -73,18 +65,21 @@ class Main : public CBase_Main {
     // Generate a hash with key object id, value index in objs vector
     statsData->deleteCommHash();
     statsData->makeCommHash();
-    greedy_array = CProxy_Greedy0::ckNew(NX, NY, 1);
+    greedy_array = CProxy_Greedy0::ckNew(1);
   }
   void init(){
     CkPrintf("\nDone init");
     Greedy0 *greedy_obj= greedy_array(0).ckLocal();
+    greedy_obj->numNodes = statsData->procs.size();
     greedy_obj->statsData = statsData;
     greedy_obj->map_obj_id.reserve(statsData->objData.size());
+    greedy_obj->map_obid_pe.reserve(statsData->objData.size());
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       LDObjData &oData = statsData->objData[obj];
       if (!oData.migratable)
         continue;
       greedy_obj->map_obj_id[obj] = oData.objID();
+      greedy_obj->map_obid_pe[obj] = statsData->from_proc[obj];
     }
       
     greedy_array(0).AtSync();
@@ -97,10 +92,8 @@ class Main : public CBase_Main {
 };
 #endif
 
-Greedy0::Greedy0(int nx, int ny){
+Greedy0::Greedy0(){
   setMigratable(false);
-  CkPrintf("\nx = %d, ny = %d", nx, ny);
-  numNodes = NX*NY*NZ;
   contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 }
 
@@ -115,7 +108,7 @@ class Greedy0::ProcLoadGreater {
   
 class Greedy0::ObjLoadGreater {
   public:
-    bool operator()(const CkVertex &v1, const CkVertex &v2) {
+    bool operator()(const Vertex &v1, const Vertex &v2) {
       return (v1.getVertexLoad() > v2.getVertexLoad());
     }
 };
@@ -130,7 +123,7 @@ void Greedy0::work() {
   std::vector<ProcInfo>  procs;
   procs.reserve(numNodes);
 
-  std::vector<CkVertex> objs;
+  std::vector<Vertex> objs;
   std::vector<double> load_info(numNodes,0.0);
   for(int obj = 0; obj < statsData->objData.size(); obj++) {
     LDObjData &oData = statsData->objData[obj];
@@ -140,7 +133,7 @@ void Greedy0::work() {
     }
     double load = oData.wallTime;
     load_info[node] += load;
-    objs.push_back(CkVertex(obj, load, statsData->objData[obj].migratable, node));
+    objs.push_back(Vertex(obj, load, statsData->objData[obj].migratable, node));
   }
 
   for(int pe = 0; pe < numNodes; pe++) {
@@ -186,8 +179,7 @@ void Greedy0::work() {
     }
     if (dest != node) {
       //Migrating
-      if(!obj_delete_on_node(node, objs[obj].getVertexId())) CkPrintf("\nUnsuccesful delete!!");
-      obj_to_pe_map[dest].push_back(objs[obj].getVertexId());
+      map_obid_pe[objs[obj].getVertexId()] = dest;
 //      statsData->to_proc[id] = dest;
       nmoves ++;
 //      if (_lb_args.debug()>2)
@@ -242,66 +234,6 @@ void Greedy0::work() {
 }
 
 void Greedy0::createObjList(){
-  int total_objs = statsData->objData.size();
-  pe_obj_count = new int[numNodes];
-  int overload_PE_count = numNodes/4;
-  int overload_factor = 4;
-  int ov_pe[overload_PE_count];
-  int interval = numNodes/overload_PE_count;
-  for(int i=0;i<overload_PE_count;i++)
-    ov_pe[i] = i*interval;//distr(gen);
-  int fake_pes = (numNodes-overload_PE_count) + (overload_PE_count*overload_factor);
-  int per_pe_obj = total_objs/fake_pes;
-  int per_overload_pe_obj = per_pe_obj*overload_factor;
-
-  obj_to_pe_map.resize(numNodes);
-  for(int i=0;i<numNodes;i++)
-    obj_to_pe_map[i].reserve(total_objs/2);
-
-  CkPrintf("\nper_pe_obj=%d, per_overload_pe_obj=%d", per_pe_obj, per_overload_pe_obj);
-
-  for(int i=0;i<numNodes;i++) {
-    int flag = 0;
-    for(int j=0;j<overload_PE_count;j++)
-      if(i==ov_pe[j]) {
-        flag = 1;
-        break;
-      }
-    if(flag)
-      pe_obj_count[i] = per_overload_pe_obj;
-    else
-      pe_obj_count[i] = per_pe_obj;
-  }
-
-  //compute prefix
-  //populate for node-0 here
-  for(int j=0; j<pe_obj_count[0];j++) {
-//    CkPrintf("\nInserting %d to node %d", j, 0);
-    obj_to_pe_map[0].push_back(j);
-  }
-
-  for(int i=1;i<numNodes;i++) {
-    pe_obj_count[i] += pe_obj_count[i-1];
-    if(i == numNodes-1) {
-      if(pe_obj_count[i] < total_objs)
-        pe_obj_count[i] = total_objs;
-    }
-    for(int j=pe_obj_count[i-1];j<pe_obj_count[i];j++) {
-//      CkPrintf("\nInserting %d to node %d", j, i);
-      obj_to_pe_map[i].push_back(j);
-    }
-  }
-}
-
-bool Greedy0::obj_delete_on_node(int node, int objId) {
-  for(int idx = 0; idx < obj_to_pe_map[node].size(); idx++) {
-    if(obj_to_pe_map[node][idx] == objId) {
-//      if(objId == 62) CkPrintf("\nDeleting objId 62 for node %d at pos %d by setting to -1", node, idx);
-      obj_to_pe_map[node][idx] = -1;
-      return true;
-    }
-  }
-  return false;
 }
 
 int Greedy0::get_obj_idx(int objHandleId) {
@@ -316,13 +248,8 @@ int Greedy0::get_obj_idx(int objHandleId) {
 }
 
 int Greedy0::obj_node_map(int objId) {
-  for(int node=0;node<numNodes;node++) {
-    for(int idx = 0; idx < obj_to_pe_map[node].size(); idx++) {
-      if(obj_to_pe_map[node][idx] == objId)
-        return node;
-    }
-  }
-  return -1;
+  Greedy0 *greedy0= greedy_array(0).ckLocal();
+  return greedy0->map_obid_pe[objId];
 }
 
 double Greedy0::average() {
@@ -350,7 +277,7 @@ void Greedy0::MaxLoad(double val) {
 void Greedy0::AvgLoad(double val) {
   //done++;
   if(thisIndex==0)
-  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/(NX*NY*NZ)));
+  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/(numNodes)));
 #ifdef STANDALONE_DIFF
 //  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes); 
   //if(done == 1) {
