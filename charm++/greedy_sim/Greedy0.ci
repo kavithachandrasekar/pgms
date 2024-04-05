@@ -19,8 +19,6 @@ module Greedy0 {
   array [1D] Greedy0 {
     entry Greedy0();
     entry [reductiontarget] void work();
-    entry [reductiontarget] void MaxLoad(double val);
-    entry [reductiontarget] void AvgLoad(double val);
     entry void AtSync(void);
   };
 };

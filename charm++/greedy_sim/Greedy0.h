@@ -19,10 +19,8 @@ public:
     ~Greedy0();
     void AtSync(void);
     void work();
-    void MaxLoad(double val);
-    void AvgLoad(double val);
     void computeCommBytes();
-    bool obj_delete_on_node(int node, int objId);
+    std::vector<double> computeMaxAvgLoad();
 
     int obj_node_map(int objId);
 
@@ -37,7 +35,8 @@ private:
 
     int stats_msg_count;
     int* pe_obj_count;
-    std::vector<Vertex> objects;
+    std::vector<Vertex> objs;
+     std::vector<Vertex> orig_objs;
     std::vector<std::vector<int>> objectComms;
     int neighborCount;
     int done;

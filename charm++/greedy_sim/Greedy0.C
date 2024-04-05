@@ -114,7 +114,6 @@ class Greedy0::ObjLoadGreater {
 };
 
 void Greedy0::AtSync() {
-  createObjList();
   contribute(CkCallback(CkReductionTarget(Greedy0, work), thisProxy(0)));
 }
 
@@ -123,7 +122,6 @@ void Greedy0::work() {
   std::vector<ProcInfo>  procs;
   procs.reserve(numNodes);
 
-  std::vector<Vertex> objs;
   std::vector<double> load_info(numNodes,0.0);
   for(int obj = 0; obj < statsData->objData.size(); obj++) {
     LDObjData &oData = statsData->objData[obj];
@@ -131,26 +129,18 @@ void Greedy0::work() {
     if (!oData.migratable) {
       continue;
     }
-    double load = oData.wallTime;
-    load_info[node] += load;
+    double load = 1.0;//oData.wallTime;
+    if(node%2==0) load = 2.5;
     objs.push_back(Vertex(obj, load, statsData->objData[obj].migratable, node));
+    orig_objs.push_back(Vertex(obj, load, statsData->objData[obj].migratable, node));
   }
 
   for(int pe = 0; pe < numNodes; pe++) {
-    procs.push_back(ProcInfo(pe, 0.0, load_info[pe], 1.0, true));
+    procs.push_back(ProcInfo(pe, 0.0, 0.0, 1.0, true));
   }
 
-  double max_load = 0.0;
-  double sum_load = 0.0;
-  for(int i=0;i<numNodes;i++) {
-//    CkPrintf("\nBefore LB:Node%d load = %f (%f)", i, load_info[i], procs[i].getTotalLoad());
-    double pe_load = load_info[i];;
-    if(max_load < pe_load)
-      max_load = pe_load;
-    sum_load += pe_load;
-  }
-
-  CkPrintf("\nMax PE load = %lf, avg PE load = %lf", max_load, sum_load/numNodes);
+  std::vector<double> max_avg = computeMaxAvgLoad();
+  CkPrintf("\nMax PE load = %lf , avg PE load = %lf ", max_avg[0], max_avg[1]);
 
   // max heap of objects
   sort(objs.begin(), objs.end(), Greedy0::ObjLoadGreater());
@@ -163,23 +153,26 @@ void Greedy0::work() {
     // greedy algorithm
   int nmoves = 0;
   for (int obj=0; obj < objs.size(); obj++) {
+    int objidx = objs[obj].getVertexId();
+    double obj_load = objs[obj].getVertexLoad();
     ProcInfo p = procs.front();
     pop_heap(procs.begin(), procs.end(), Greedy0::ProcLoadGreater());
     procs.pop_back();
 
     // Increment the time of the least loaded processor by the cpuTime of
     // the `heaviest' object
-    p.setTotalLoad( p.getTotalLoad() + objs[obj].getVertexLoad());
+    p.setTotalLoad( p.getTotalLoad() + obj_load);
 
     //Insert object into migration queue if necessary
     const int dest = p.getProcId();
-    const int node   = obj_node_map(objs[obj].getVertexId());
+    const int node   = obj_node_map(objidx);
+
     if(node==-1) {
       CkPrintf("\nObj node map error couldnt find obj%d!!, ",objs[obj].getVertexId());fflush(stdout);CkExit(1);
     }
     if (dest != node) {
       //Migrating
-      map_obid_pe[objs[obj].getVertexId()] = dest;
+      map_obid_pe[objidx] = dest;
 //      statsData->to_proc[id] = dest;
       nmoves ++;
 //      if (_lb_args.debug()>2)
@@ -192,48 +185,13 @@ void Greedy0::work() {
     push_heap(procs.begin(), procs.end(), Greedy0::ProcLoadGreater());
   }
 
-  max_load = 0.0;
-  sum_load = 0.0;
-#if 0
-  for(int i=0;i<procs.size();i++) {
-    ProcInfo p = procs[i];
-    double pe_load = p.getTotalLoad();
-    if(max_load < pe_load)
-      max_load = pe_load;
-    sum_load += pe_load;
-  }
-#endif
 
   computeCommBytes();
-
-  std::vector<double> load_info2(numNodes,0.0);
-  for(int obj = 0; obj < statsData->objData.size(); obj++) {
-    LDObjData &oData = statsData->objData[obj];
-    int objid = objs[obj].getVertexId();
-    int node = obj_node_map(objid);
-//    if(objid == 62) CkPrintf("\nNode = %d for 62", node);
-    if (!oData.migratable) {
-      continue;
-    }
-    double load = oData.wallTime;
-    load_info2[node] += load;
-  }
-
-  for(int i=0;i<numNodes;i++) {
-//    CkPrintf("\nAfter LB:Node%d load = %f", i, load_info2[i]);
-    double pe_load = load_info2[i];;
-    if(max_load < pe_load)
-      max_load = pe_load;
-    sum_load += pe_load;
-  }
-
-  CkPrintf("\nMax PE load = %lf, avg PE load = %lf", max_load, sum_load/numNodes);
+  max_avg = computeMaxAvgLoad();
+  CkPrintf("\nMax PE load = %lf, avg PE load = %lf", max_avg[0], max_avg[1]);
   CkCallback cb(CkReductionTarget(Main, done), mainProxy);
   contribute(cb);
 
-}
-
-void Greedy0::createObjList(){
 }
 
 int Greedy0::get_obj_idx(int objHandleId) {
@@ -252,41 +210,27 @@ int Greedy0::obj_node_map(int objId) {
   return greedy0->map_obid_pe[objId];
 }
 
-double Greedy0::average() {
-  double sum = 0;
-  for(int i = 0; i < neighborCount; i++) {
+std::vector<double> Greedy0::computeMaxAvgLoad() {
+  std::vector<double> pe_load(numNodes,0.0);
+  double load_sum = 0.0;
+  for(int obj = 0; obj < statsData->objData.size(); obj++) {
+    LDObjData &oData = statsData->objData[obj];
+    int objidx = get_obj_idx(oData.objID());
+    int node = obj_node_map(objidx);
+    if (!oData.migratable) {
+      continue;
+    }
+    pe_load[node] += orig_objs[objidx].getVertexLoad();
+    load_sum += orig_objs[objidx].getVertexLoad();
   }
-  // TODO: check the value
-  return (sum/neighborCount);
-}
 
-bool Greedy0::AggregateToSend() {
-  bool res = false;
-  for(int i = 0; i < neighborCount; i++) {
-    toSendLoad[i] -= toReceiveLoad[i];
-    if(toSendLoad[i] > 0)
-      res= true;
-  }
-  return res;
+  double max =  *std::max_element(pe_load.begin(), pe_load.end());
+  double avg = load_sum/numNodes;
+  std::vector<double> stats;
+  stats.push_back(max);
+  stats.push_back(avg);
+  return stats;
 }
-
-void Greedy0::MaxLoad(double val) {
-  DEBUGF(("\n[Iter:] Max PE load = %lf", val));
-}
-
-void Greedy0::AvgLoad(double val) {
-  //done++;
-  if(thisIndex==0)
-  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/(numNodes)));
-#ifdef STANDALONE_DIFF
-//  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes); 
-  //if(done == 1) {
- // }
-#else
-    cb(objPtr);
-#endif
-}
-
 
 void Greedy0::computeCommBytes() {
   double internalBytes = 0.0;
@@ -294,7 +238,7 @@ void Greedy0::computeCommBytes() {
   CkPrintf("\nNumber of edges = %d", statsData->commData.size());
   for(int edge = 0; edge < statsData->commData.size(); edge++) {
     LDCommData &commData = statsData->commData[edge];
-//    if(!commData.from_proc() && commData.recv_type()==LD_OBJ_MSG)
+    if(!commData.from_proc() && commData.recv_type()==LD_OBJ_MSG)
     {
       LDObjKey from = commData.sender;
       LDObjKey to = commData.receiver.get_destObj();
