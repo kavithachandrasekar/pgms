@@ -23,6 +23,8 @@
 #ifndef _GREEDY_REFINE_LB_H_
 #define _GREEDY_REFINE_LB_H_
 
+#include "ckgraph.h"
+#include "BaseLB.h"
 #include "CentralLB.h"
 #include "GreedyRefineLB.decl.h"
 
@@ -33,13 +35,14 @@ BaseLB *AllocateGreedyRefineLB();
 
 class GreedyRefineLB : public CBase_GreedyRefineLB {
 public:
-  GreedyRefineLB(const CkLBOptions &);
-  GreedyRefineLB(CkMigrateMessage *m);
-  void work(LDStats* stats);
+  GreedyRefineLB();
+  void work();
   void receiveSolutions(CkReductionMsg *msg);
   void receiveTotalTime(double time);
   void setMigrationTolerance(float tol) { migrationTolerance = tol; }
+  void AtSync();
 
+  BaseLB::LDStats *stats;
   std::vector<int>map_obj_id;
   std::vector<int>map_obid_pe;
   int numNodes;
@@ -75,7 +78,7 @@ private:
   class PHeap;
   class Solution;
 
-  double fillData(LDStats *stats,
+  double fillData(BaseLB::LDStats *stats,
                   std::vector<GObj> &objs,
                   std::vector<GObj*> &pobjs,
                   std::vector<GProc> &procs,
@@ -83,12 +86,17 @@ private:
 
   double greedyLB(const std::vector<GObj*> &pobjs, PHeap &procHeap, const BaseLB::LDStats *stats) const;
   void sendSolution(double maxLoad, int migrations);
+  void computeCommBytes();
+  int get_obj_idx(int objHandleId);
+  int obj_node_map(int objId);
 
   double strategyStartTime;
   double totalObjLoad;
   int availablePes;
   float migrationTolerance;
   int totalObjs;
+  bool concurrent;
+  int cur_ld_balancer;
 #if __DEBUG_GREEDY_REFINE_
   void dumpObjLoads(std::vector<GObj> &objs);
   void dumpProcLoads(std::vector<GProc> &procs);

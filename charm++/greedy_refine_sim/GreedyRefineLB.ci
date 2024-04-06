@@ -10,8 +10,9 @@ mainmodule GreedyRefineLB {
   };
 
   array [1D] GreedyRefineLB{
-    entry void GreedyRefineLB(const CkLBOptions &);
+    entry void GreedyRefineLB();
     entry void receiveSolutions(CkReductionMsg *msg);
     entry [reductiontarget] void receiveTotalTime(double time);
+    entry void AtSync(void);
   };
 };
