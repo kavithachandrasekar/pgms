@@ -17,7 +17,7 @@
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NUM_NEIGHBORS 4
+#define NUM_NEIGHBORS 8//4
 
 #define ITERATIONS 80
 
@@ -244,8 +244,18 @@ void Diffusion::createObjList(){
         CmiAbort("Greedy0LB cannot handle nonmigratable object on an unavial processor!\n");
       continue;
     }
-    double load = 1.0;//oData.wallTime * statsData->procs[pe].pe_speed;
+/*
+#if 1
+    double load = 1.0;//0.4;//oData.wallTime;// * statsData->procs[pe].pe_speed;
     if(pe%2==0) load = 3.5;
+#else
+    double load = 0.4;
+    if(pe%3==0 && obj%3==0) load = 1.5;
+#endif
+*/
+    double load = 0.4;
+    if(obj < statsData->objData.size()/3 || obj >= 2*statsData->objData.size()/3) load = 2.0;
+    statsData->objData[obj].wallTime = load;
     objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
   }
@@ -587,27 +597,33 @@ void Diffusion::LoadBalancing() {
       //CkPrintf("not migratable \n");
       continue;
     }
+//    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
     vector<int> comm = objectComms[v_id];
       int maxComm = 0;
       int maxi = -1;
+    vector<int> V(NUM_NEIGHBORS);
+    std::iota(V.begin(),V.end(),0); //Initializing
+    sort( V.begin(),V.end(), [&](int i,int j){return toSendLoad[i]>toSendLoad[j];} );
       // TODO: Get the object vs communication cost ratio and work accordingly.
-      for(int i = 0, l=n_count ; i < neighborCount; i++) {
-
+      for(int i = 0; i < neighborCount; i++) {
+        int l = V[i];
         // TODO: if not underloaded continue
-        if(toSendLoad[l] > 1.0 && currLoad <= toSendLoad[l]*1.2){//+threshold) {
-          //maxi = l;//break;
+        if(toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l]*1.35){//+threshold) {
+//          maxi = l;break;
+#if 1
           if(l!=SELF_IDX && (maxi == -1 || maxComm < comm[l])) {
               maxi = l;
              maxComm = comm[l];
           }
+#endif
         }
-        l = (l+1)%neighborCount;
+//        l = (l+1)%neighborCount;
       }
-      n_count = (n_count+1)%neighborCount;
-/*
-      if(maxi != -1)
-        CkPrintf("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi,sendToNeighbors[maxi],currLoad,toSendLoad[maxi]);
-*/
+//      n_count = (n_count+1)%neighborCount;
+
+//      if(maxi != -1)
+//        CkPrintf("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi,sendToNeighbors[maxi],currLoad,toSendLoad[maxi]);
+
       if(maxi != -1) {
         migrated_obj_count++;
         int node = sendToNeighbors[maxi];
