@@ -17,7 +17,7 @@
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NUM_NEIGHBORS 8//4
+#define NUM_NEIGHBORS 8
 
 #define ITERATIONS 80
 
@@ -254,7 +254,8 @@ void Diffusion::createObjList(){
 #endif
 */
     double load = 0.4;
-    if(obj < statsData->objData.size()/3 || obj >= 2*statsData->objData.size()/3) load = 2.0;
+    int eightth = statsData->objData.size()/8;
+    if((obj/eightth)%2==0) load = 0.9;
     statsData->objData[obj].wallTime = load;
     objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
@@ -597,11 +598,11 @@ void Diffusion::LoadBalancing() {
       //CkPrintf("not migratable \n");
       continue;
     }
-//    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
+    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
     vector<int> comm = objectComms[v_id];
       int maxComm = 0;
       int maxi = -1;
-    vector<int> V(NUM_NEIGHBORS);
+    vector<int> V(neighborCount);
     std::iota(V.begin(),V.end(),0); //Initializing
     sort( V.begin(),V.end(), [&](int i,int j){return toSendLoad[i]>toSendLoad[j];} );
       // TODO: Get the object vs communication cost ratio and work accordingly.
@@ -621,8 +622,8 @@ void Diffusion::LoadBalancing() {
       }
 //      n_count = (n_count+1)%neighborCount;
 
-//      if(maxi != -1)
-//        CkPrintf("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi,sendToNeighbors[maxi],currLoad,toSendLoad[maxi]);
+      if(maxi != -1)
+        CkPrintf("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi,sendToNeighbors[maxi],currLoad,toSendLoad[maxi]);
 
       if(maxi != -1) {
         migrated_obj_count++;
@@ -653,7 +654,7 @@ void Diffusion::LoadBalancing() {
         double to_send_total = 0.0;
         if(toSendLoad[i] > 0.0) {
           to_send_total += toSendLoad[i];
-//          CkPrintf("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total,sendToNeighbors[i]);
+          CkPrintf("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total,sendToNeighbors[i]);
         }
     }
 //    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);

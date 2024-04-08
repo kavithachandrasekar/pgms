@@ -361,8 +361,10 @@ double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
     LDObjData &oData = stats->objData[i];
     GreedyRefineLB::GObj &obj = objs[i];
     int pe = stats->from_proc[i];
-    oData.wallTime = 1.0;
-    if(pe%2==0) oData.wallTime = 3.5;
+    double load = 0.4;
+    if(i < stats->objData.size()/3 || i >= 2*stats->objData.size()/3) load = 2.0;
+    oData.wallTime = load;//1.0;
+//    if(pe%2==0) oData.wallTime = 3.5;
     obj.id = i;
     obj.oldPE = pe;
     CkAssert(pe >= 0 && pe <= n_pes);

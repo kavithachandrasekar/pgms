@@ -43,10 +43,6 @@ public:
     void okayNbor(int agree, int nborId);
 
 /* comm graph-based neighbors */
-    void pickCommNeighbors();
-    void queryNeighbors();
-    void doneNborExchg();
-    void AddNeighbor(int node);
     void sortArr(long arr[], int n, int *nbors);
 
     bool obj_on_node(int objId);
@@ -64,6 +60,7 @@ private:
     int statsReceived;
     int loadReceived;
     int round;
+    int pick;
     int requests_sent;
     int stats_msg_count;
     int numNodes;
@@ -98,6 +95,7 @@ private:
     int findNborIdx(int node);
     void PseudoLoadBalancing();
     void InitializeObjHeap(int* obj_arr, int n, int* gain_val);
+    void createCommList();
 public:
     BaseLB::LDStats *statsData;
     double my_load;

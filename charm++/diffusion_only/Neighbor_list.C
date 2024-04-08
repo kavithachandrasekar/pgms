@@ -1,6 +1,35 @@
 /* Pick NUM_NEIGHBORS in random */
 
+void Diffusion::createCommList() {
+  pick = 0;
+  long ebytes[numNodes];
+  std::fill_n(ebytes, numNodes, 0);
+  nbors = new int[NUM_NEIGHBORS+numNodes];
+  for(int i=0;i<numNodes;i++)
+    nbors[i] = -1;
+  neighborCount = sendToNeighbors.size();//neighborCount = NUM_NEIGHBORS/2;
+  for(int edge = 0; edge < edge_indices.size()/*statsData->commData.size()*/; edge++) {
+    LDCommData &commData = statsData->commData[edge_indices[edge]];
+    if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) )
+    { 
+      LDObjKey from = commData.sender;
+      LDObjKey to = commData.receiver.get_destObj();
+      
+      int fromobj = get_obj_idx(from.objID());
+      int toobj = get_obj_idx(to.objID());
+      if(fromobj == -1 || toobj == -1) continue;
+      int fromNode = obj_node_map(fromobj);
+      if(fromNode != thisIndex) continue;
+      int toNode = obj_node_map(toobj);
+      
+      if(thisIndex != toNode && toNode!= -1)
+        ebytes[toNode] += commData.bytes;
+    }
+  }
+  sortArr(ebytes, numNodes, nbors);
+}
 void Diffusion::findNBors(int do_again) {
+  if(round==0) createCommList();
   requests_sent = 0;
   if(!do_again || round == 100) {
     neighborCount = sendToNeighbors.size();
@@ -23,7 +52,7 @@ void Diffusion::findNBors(int do_again) {
   int nborsNeeded = (NUM_NEIGHBORS - sendToNeighbors.size())/2;
   if(nborsNeeded > 0) {
     while(potentialNb < nborsNeeded) {
-      int potentialNbor = rand() % numNodes;
+      int potentialNbor = nbors[pick++];//rand() % numNodes;
       if(myNodeId != potentialNbor &&
           std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end()) {
         requests_sent++;
@@ -136,90 +165,6 @@ void Diffusion::pick3DNbors() {
 
   findNBors(0);
 #endif
-}
-
-/* Create comm graph based neighbor list */
-
-void Diffusion::pickCommNeighbors() { 
-  long ebytes[numNodes];
-  std::fill_n(ebytes, numNodes, 0);
-  nbors = new int[NUM_NEIGHBORS+numNodes];
-  for(int i=0;i<numNodes;i++)
-    nbors[i] = -1;
-  neighborCount = NUM_NEIGHBORS/2;
-  for(int edge = 0; edge < statsData->commData.size(); edge++) {
-    LDCommData &commData = statsData->commData[edge];
-    //if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) )
-    {
-      LDObjKey from = commData.sender;
-      LDObjKey to = commData.receiver.get_destObj();
-
-      int fromobj = get_obj_idx(from.objID());
-      int toobj = get_obj_idx(to.objID());
-      if(fromobj == -1 || toobj == -1) continue;
-      int fromNode = obj_node_map(fromobj);
-      if(fromNode != thisIndex) continue;
-      int toNode = obj_node_map(toobj);
-
-      // Check the possible values of lastKnown. 
-      //int toPE = commData.receiver.lastKnown(); //use map for simulation (this
-      //is an issue for actual lb, since we will run into stale information)
-      //int toNode = toPE;
-//        DEBUGL(("\ntoPE = %d",toPE);
-      if(thisIndex != toNode && toNode!= -1) {
-        ebytes[toNode] += commData.bytes;
-    //    externalBytes += commData.bytes;
-      } else if(thisIndex == toNode) {
-    //    internalBytes += commData.bytes;
-      }
-    }
-  }
- 
-    for(int i=0;i<numNodes;i++) {
-      if(ebytes[i] > 0)
-      DEBUGL(("\n[SimNode-%d] ebytes[to node %d] = %lu", thisIndex, i, ebytes[i]));
-    }
-  sortArr(ebytes, numNodes, nbors);
-//    DEBUGL(("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), thisIndex, nbors[0], nbors[1]);
-  CkCallback cb(CkIndex_Diffusion::queryNeighbors(), thisProxy);
-  contribute(cb);
-}
-
-void Diffusion::queryNeighbors(){
-  for(int i=0;i<numNodes;i++) {
-    int isNbor = 0;
-    if(i != thisIndex){
-      for(int j=0;j<NUM_NEIGHBORS/2;j++) {
-        if(nbors[j] == i) {
-          isNbor = 1;
-          break;
-        }
-      }
-    }
-    thisProxy[i].notifyNeighbor(isNbor, thisIndex);
-  }
-}
-
-void Diffusion::doneNborExchg() {
-  std::string nbor_nodes = " ";
-  for(int i = 0; i < neighborCount; i++) {
-    //Add your neighbors node-id as your neighbor
-     nbor_nodes += "node-"+ std::to_string(nbors[i])+", ";
-    AddNeighbor(nbors[i]);
-  }
-  sendToNeighbors.resize(neighborCount);
-  loadNeighbors = new double[neighborCount];
-  toSendLoad = new double[neighborCount];
-  toReceiveLoad = new double[neighborCount];
-  DEBUGL(("\n[PE-%d,Node-%d] my neighbors: %s (#%d neighbors)\n", CkMyPe(), thisIndex, nbor_nodes.c_str(), neighborCount));
-  CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
-  contribute(cb);
-}
-
-void Diffusion::AddNeighbor(int node) {
-  if(sendToNeighbors.size() > neighborCount)
-    DEBUGL(("\n[PE-%d,node-%d]Adding nbors (node-%d) beyond count!! %lu>(of expected count %d)\n", CkMyPe(), thisIndex, node, sendToNeighbors.size(), neighborCount));
-  sendToNeighbors.push_back(node);
 }
 
 void Diffusion::sortArr(long arr[], int n, int *nbors)
