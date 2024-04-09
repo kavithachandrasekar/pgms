@@ -354,7 +354,11 @@ void Diffusion::AvgLoad(double val) {
 #ifdef STANDALONE_DIFF
 //  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes); 
   if(done == 1) {
-    thisProxy(thisIndex).LoadBalancing();
+    if(thisIndex==0) {
+      CkPrintf("\n-----------------------------------------------");
+      computeCommBytes(1);
+      thisProxy.LoadBalancing();
+    }
   }
 #else
 //    CkPrintf("\nCalling Obj potr %d", CkMyPe());
@@ -450,10 +454,6 @@ void Diffusion::computeCommBytes(int before) {
 }
 
 void Diffusion::LoadBalancing() {
-  if(thisIndex==0) {
-      CkPrintf("\n-----------------------------------------------");
-      computeCommBytes(1);
-  }
 //  if(thisIndex%4==0)
   { //Overloaded PEs in this dataset
     for(int i = 0; i < neighborCount; i++) {
