@@ -605,7 +605,7 @@ void Diffusion::LoadBalancing() {
       //CkPrintf("not migratable \n");
       continue;
     }
-    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
+    DEBUGL(("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad));
     vector<int> comm = objectComms[v_id];
       int maxComm = 0;
       int maxi = -1;
@@ -661,7 +661,7 @@ void Diffusion::LoadBalancing() {
         double to_send_total = 0.0;
         if(toSendLoad[i] > 0.0) {
           to_send_total += toSendLoad[i];
-          CkPrintf("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total,sendToNeighbors[i]);
+          DEBUGL(("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total,sendToNeighbors[i]));
         }
     }
 //    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);
