@@ -119,7 +119,7 @@ class Main : public CBase_Main {
         }
       }
     }
-    CkPrintf("\ncomm edges count = %d", statsData->commData.size());
+    CkPrintf("\ncomm edges count = %zu", statsData->commData.size());
     Diffusion *diff_obj0 = diff_array(0).ckLocal();
 
     for(int edge = 0; edge < statsData->commData.size(); edge++) {
@@ -316,7 +316,7 @@ int Diffusion::findNborIdx(int node) {
   for(int i=0;i<neighborCount;i++)
     if(sendToNeighbors[i] == node)
       return i;
-  for(int i=0;i<neighborCount;i++)
+//  for(int i=0;i<neighborCount;i++)
 //  DEBUGE(("\n[%d]Couldnt find node %d in %d", thisIndex, node, sendToNeighbors[i]));
 //  CkExit(0);
   return -1;
@@ -454,7 +454,7 @@ void Diffusion::computeCommBytes(int before) {
     externalBytes += external_arr[i];
   }
 */
-  char* tag = "Before";
+  const char* tag = "Before";
   if(!before)
     tag = "After";
   CkPrintf("\n[%s LB] Internal comm Mbytes = %lf, External comm Mbytes = %lf", tag, internalBytes/(1024*1024), externalBytes/(1024*1024));
