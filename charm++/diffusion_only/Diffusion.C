@@ -10,6 +10,7 @@
  *     by only passing load values
  */
 #include "Diffusion.h"
+#include "common_lbsim.h"
 
 #include "Heap_helper.C"
 #define DEBUGF(x) CmiPrintf x;
@@ -32,6 +33,9 @@
 
 #define BYTES 512
 #define SIZE 1000
+
+#define obj_imb(x) load_imb_by_pe(x)
+//#define obj_imb(x) load_imb_by_history(x)
 
 #include "Neighbor_list.C"
 
@@ -102,6 +106,7 @@ class Main : public CBase_Main {
       Diffusion *diff_obj= diff_array(i).ckLocal();
       diff_obj->statsData = statsData;
       if(i==0) {
+        obj_imb(statsData);
         diff_obj->map_obj_id.reserve(statsData->objData.size());
         diff_obj->map_obid_pe.reserve(statsData->objData.size());
         for(int obj = 0; obj < statsData->objData.size(); obj++) {
@@ -253,10 +258,12 @@ void Diffusion::createObjList(){
     if(pe%3==0 && obj%3==0) load = 1.5;
 #endif
 */
+/*
     double load = 0.4;
     int eightth = statsData->objData.size()/8;
     if((obj/eightth)%2==0) load = 0.9;
-    statsData->objData[obj].wallTime = load;
+*/
+    double load = statsData->objData[obj].wallTime;
     objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
   }
