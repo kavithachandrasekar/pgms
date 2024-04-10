@@ -10,7 +10,7 @@
  *     by only passing load values
  */
 #include "Diffusion.h"
-#include "common_lbsim.h"
+#include "../sim_headers/common_lbsim.h"
 
 #include "Heap_helper.C"
 #define DEBUGF(x) CmiPrintf x;
@@ -33,9 +33,6 @@
 
 #define BYTES 512
 #define SIZE 1000
-
-#define obj_imb(x) load_imb_by_pe(x)
-//#define obj_imb(x) load_imb_by_history(x)
 
 #include "Neighbor_list.C"
 

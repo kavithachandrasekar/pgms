@@ -24,6 +24,8 @@
 #include "ckgraph.h"
 #include "GreedyRefineLB.h"
 
+#include "../sim_headers/common_lbsim.h"
+
 #include <float.h>
 #include <limits.h>
 #include <algorithm>
@@ -356,15 +358,11 @@ double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
     }
   }
   if (!availablePes) CkAbort("GreedyRefineLB: No available processors\n");
-
+  obj_imb(stats);
   for (int i=0; i < n_objs; i++) {
     LDObjData &oData = stats->objData[i];
     GreedyRefineLB::GObj &obj = objs[i];
     int pe = stats->from_proc[i];
-    double load = 0.4;
-    if(i < stats->objData.size()/3 || i >= 2*stats->objData.size()/3) load = 2.0;
-    oData.wallTime = load;//1.0;
-//    if(pe%2==0) oData.wallTime = 3.5;
     obj.id = i;
     obj.oldPE = pe;
     CkAssert(pe >= 0 && pe <= n_pes);
