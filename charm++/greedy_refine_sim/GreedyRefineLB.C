@@ -45,6 +45,7 @@ using namespace std;
 static obj_imb_funcptr obj_imb;
 class Main : public CBase_Main {
   BaseLB::LDStats *statsData;
+  int stats_msg_count;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
@@ -61,7 +62,6 @@ class Main : public CBase_Main {
     if (f==NULL) {
       CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", filename);
     }
-    int stats_msg_count;
     BaseLB::LDStats *statsDatax = new BaseLB::LDStats;
     statsDatax->objData.reserve(SIZE);
     statsDatax->from_proc.reserve(SIZE);
@@ -120,6 +120,28 @@ class Main : public CBase_Main {
   }
 
   void done() {
+    GreedyRefineLB *greedy_obj= greedy_array(0).ckLocal();
+    for(int obj = 0; obj < statsData->objData.size(); obj++) {
+      if (!statsData->objData[obj].migratable)
+        continue;
+      statsData->from_proc[obj] = greedy_obj->map_obid_pe[obj];
+    }
+    const char* filename = "lbdata.dat.out.0";
+    FILE *f = fopen(filename, "w");
+    if (f==NULL) {
+      CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
+    }
+    const PUP::machineInfo &machInfo = PUP::machineInfo::current();
+    PUP::toDisk p(f);
+    p((char *)&machInfo, sizeof(machInfo)); // machine info
+
+    p|_lb_args.lbversion();   // write version number
+    p|stats_msg_count;
+    statsData->pup(p);
+
+    fclose(f);
+
+    CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
       CkPrintf("\nDONE");fflush(stdout);
       CkExit(0);
   }
