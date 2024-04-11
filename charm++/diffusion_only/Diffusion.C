@@ -44,11 +44,19 @@ using std::vector;
 
 class Main : public CBase_Main {
   BaseLB::LDStats *statsData;
+  obj_imb_funcptr obj_imb;
   int numNodes;
   int stats_msg_count;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
+    if(m->argc > 1) {
+      int fn_type =  atoi(m->argv[1]);
+      if(fn_type == 1)
+        obj_imb = (obj_imb_funcptr) load_imb_by_pe;
+      else if(fn_type == 2)
+        obj_imb = (obj_imb_funcptr) load_imb_by_history;
+    }
     const char* filename = "lbdata.dat.0";
         int i;
     FILE *f = fopen(filename, "r");

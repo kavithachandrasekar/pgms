@@ -1,5 +1,4 @@
-#define obj_imb(x) load_imb_by_pe(x)
-//#define obj_imb(x) load_imb_by_history(x)
+typedef void (*obj_imb_funcptr)(BaseLB::LDStats*);
 
 static void load_imb_by_pe(BaseLB::LDStats *statsData) {
   for(int obj = 0 ; obj < statsData->objData.size(); obj++) {
