@@ -635,7 +635,7 @@ void Diffusion::LoadBalancing() {
 //      n_count = (n_count+1)%neighborCount;
 
       if(maxi != -1)
-        CkPrintf("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi,sendToNeighbors[maxi],currLoad,toSendLoad[maxi]);
+        DEBUGL(("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi,sendToNeighbors[maxi],currLoad,toSendLoad[maxi]));
 
       if(maxi != -1) {
         migrated_obj_count++;
