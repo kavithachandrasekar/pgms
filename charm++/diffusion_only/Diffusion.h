@@ -27,7 +27,6 @@ public:
 
     void passPtrs(double *loadNbors, double *toSendLd,
                               double *toRecvLd, void (*func)(void*), void* obj);
-    void computeCommBytes(int wn);
 
     int obj_node_map(int objId);
 

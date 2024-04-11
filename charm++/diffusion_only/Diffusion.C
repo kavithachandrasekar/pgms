@@ -254,20 +254,6 @@ void Diffusion::createObjList(){
         CmiAbort("Greedy0LB cannot handle nonmigratable object on an unavial processor!\n");
       continue;
     }
-/*
-#if 1
-    double load = 1.0;//0.4;//oData.wallTime;// * statsData->procs[pe].pe_speed;
-    if(pe%2==0) load = 3.5;
-#else
-    double load = 0.4;
-    if(pe%3==0 && obj%3==0) load = 1.5;
-#endif
-*/
-/*
-    double load = 0.4;
-    int eightth = statsData->objData.size()/8;
-    if((obj/eightth)%2==0) load = 0.9;
-*/
     double load = statsData->objData[obj].wallTime;
     objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
@@ -354,7 +340,7 @@ void Diffusion::finishLB(){
   contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
 }
 void Diffusion::MaxLoad(double val) {
-  if(finished)computeCommBytes(0);
+  if(finished)computeCommBytes(statsData, this, 0);
   DEBUGF(("\n[Iter: %d] Max PE load = %lf", itr, val));fflush(stdout);
   if(finished) mainProxy.done();
 }
@@ -368,7 +354,7 @@ void Diffusion::AvgLoad(double val) {
   if(done == 1) {
     if(thisIndex==0) {
       CkPrintf("\n-----------------------------------------------");
-      computeCommBytes(1);
+      computeCommBytes(statsData, this, 1);
       thisProxy.LoadBalancing();
     }
   }
@@ -424,46 +410,6 @@ void Diffusion::PseudoLoadBalancing() {
 }
 
 #include "omp.h"
-
-void Diffusion::computeCommBytes(int before) {
-  double internalBytes = 0.0;
-  double externalBytes = 0.0;
-//  CkPrintf("\nNumber of edges = %d", statsData->commData.size());
-
-//#pragma omp parallel for num_threads(4)
-  for(int edge = 0; edge < statsData->commData.size(); edge++) {
-    LDCommData &commData = statsData->commData[edge];
-    if(!commData.from_proc() && commData.recv_type()==LD_OBJ_MSG)
-    {
-      LDObjKey from = commData.sender;
-      LDObjKey to = commData.receiver.get_destObj();
-      int fromobj = get_obj_idx(from.objID());
-      int toobj = get_obj_idx(to.objID());
-      if(fromobj == -1 || toobj == -1) continue;
-      int fromNode = obj_node_map(fromobj);
-      int toNode = obj_node_map(toobj);
-
-      //store internal bytes in the last index pos ? -q
-      if(fromNode == toNode)
-        internalBytes+= commData.bytes;//internal_arr[omp_get_thread_num()] += commData.bytes;
-      else// External communication
-        externalBytes += commData.bytes;//external_arr[omp_get_thread_num()] += commData.bytes;
-    }
-  // else {
-  //    CkPrintf("\nNot the kind of edge we want");
-  //  }
-  } // end for
-/*
-  for(int i=0;i<4;i++) {
-    internalBytes += internal_arr[i];
-    externalBytes += external_arr[i];
-  }
-*/
-  const char* tag = "Before";
-  if(!before)
-    tag = "After";
-  CkPrintf("\n[%s LB] Internal comm Mbytes = %lf, External comm Mbytes = %lf", tag, internalBytes/(1024*1024), externalBytes/(1024*1024));
-}
 
 void Diffusion::LoadBalancing() {
 //  if(thisIndex%4==0)

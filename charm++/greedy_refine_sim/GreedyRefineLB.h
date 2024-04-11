@@ -42,6 +42,9 @@ public:
   void setMigrationTolerance(float tol) { migrationTolerance = tol; }
   void AtSync();
 
+  int get_obj_idx(int objHandleId);
+  int obj_node_map(int objId);
+
   BaseLB::LDStats *stats;
   std::vector<int>map_obj_id;
   std::vector<int>map_obid_pe;
@@ -86,9 +89,6 @@ private:
 
   double greedyLB(const std::vector<GObj*> &pobjs, PHeap &procHeap, const BaseLB::LDStats *stats) const;
   void sendSolution(double maxLoad, int migrations);
-  void computeCommBytes();
-  int get_obj_idx(int objHandleId);
-  int obj_node_map(int objId);
 
   double strategyStartTime;
   double totalObjLoad;

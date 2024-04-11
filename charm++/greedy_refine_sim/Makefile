@@ -1,6 +1,6 @@
 -include ../../../common.mk
 OPTS	= -g
-CHARMC	= ../../../../../bin/charmc $(OPTS)
+CHARMC	= ../../../../../mpi-linux-x86_64-smp/bin/charmc $(OPTS)
 
 OBJS = GreedyRefineLB.o
 

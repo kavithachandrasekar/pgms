@@ -495,7 +495,7 @@ void GreedyRefineLB::AtSync() {
 
 void GreedyRefineLB::work()
 {
-  computeCommBytes();
+  computeCommBytes(stats, this, 0);
   strategyStartTime = CkWallTimer();
   float A = 1.001, B = FLT_MAX; // Use A=0, B=-1 to imitate regular Greedy (ignore migrations)
   if (concurrent) {
@@ -590,7 +590,7 @@ void GreedyRefineLB::work()
     }
     CkPrintf("[%d] GreedyRefineLB: after lb, max_load=%.3f, migrations=%d(%.2f%%), ratioToGreedy=%.3f\n",
              CkMyPe(), maxLoad, nmoves, 100.0*migrationRatio, greedyRatio);
-    computeCommBytes();
+    computeCommBytes(stats, this, 1);
     CkCallback cb(CkReductionTarget(Main, done), mainProxy);
     contribute(cb);
   }
@@ -689,30 +689,6 @@ int GreedyRefineLB::obj_node_map(int objId) {
   return map_obid_pe[objId];
 }
 
-void GreedyRefineLB::computeCommBytes() {
-  double internalBytes = 0.0;
-  double externalBytes = 0.0;
-  CkPrintf("\nNumber of edges = %d", stats->commData.size());
-  for(int edge = 0; edge < stats->commData.size(); edge++) {
-    LDCommData &commData = stats->commData[edge];
-    if(!commData.from_proc() && commData.recv_type()==LD_OBJ_MSG)
-    {
-      LDObjKey from = commData.sender;
-      LDObjKey to = commData.receiver.get_destObj();
-      int fromobj = get_obj_idx(from.objID());
-      int toobj = get_obj_idx(to.objID());
-      if(fromobj == -1 || toobj == -1) continue;
-      int fromNode = obj_node_map(fromobj);
-      int toNode = obj_node_map(toobj);
-
-      if(fromNode == toNode)
-        internalBytes += commData.bytes;
-      else// External communication
-        externalBytes += commData.bytes;
-    }
-  } // end for
-  CkPrintf("\nInternal comm Mbytes = %lf, External comm Mbytes = %lf", internalBytes/(1024*1024), externalBytes/(1024*1024));
-}
 #include "GreedyRefineLB.def.h"
 
 /*@}*/
