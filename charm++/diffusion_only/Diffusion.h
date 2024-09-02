@@ -69,7 +69,7 @@ private:
     double *loadNeighbors;
     int *nbors;
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
-    std::vector<Vertex> objects;
+    std::vector<CkVertex> objects;
     std::vector<std::vector<int>> objectComms;
     int neighborCount;
     bool finished;

@@ -116,7 +116,7 @@ void heapify(std::vector<T>& data, Compare comp, std::vector<int>& pos) {
 
 class ObjCompareOperator {
  public:
-    ObjCompareOperator(std::vector<Vertex>* obj, int* gain_val): objs(obj),
+    ObjCompareOperator(std::vector<CkVertex>* obj, int* gain_val): objs(obj),
       gains(gain_val) {}
 
     bool operator()(int v1, int v2) {
@@ -124,7 +124,7 @@ class ObjCompareOperator {
         return (gains[v1] > gains[v2]);//right
     }
  private:
-    std::vector<Vertex>* objs;
+    std::vector<CkVertex>* objs;
     int* gains;
 };
 

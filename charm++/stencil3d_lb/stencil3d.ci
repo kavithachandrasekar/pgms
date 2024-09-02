@@ -40,4 +40,7 @@ mainmodule stencil3d {
       }
     };
   };
+  group BlockMap2 : CkArrayMap {
+    entry BlockMap2(int numx, int numy, int numz, double proc_numxyz);
+  };
 };

@@ -26,9 +26,68 @@ static void load_imb_by_history(BaseLB::LDStats *statsData) {
     }
     int a=rand()%2;
     if(a)
-      statsData->objData[obj].wallTime *= 0.8;
+      statsData->objData[obj].wallTime *= 0.7;
     else
-      statsData->objData[obj].wallTime *= 1.2;
+      statsData->objData[obj].wallTime *= 1.5;
+  }
+}
+
+static void load_imb_by_linear(BaseLB::LDStats *statsData) {
+  for(int obj = 0 ; obj < statsData->objData.size(); obj++) {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable) {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+    double min_load = 10.0, max_load = 25.0;
+    double  numNodes = statsData->procs.size();
+    double load = min_load + pe*((max_load-min_load)/numNodes);
+    statsData->objData[obj].wallTime = load;
+  }
+}
+
+static void load_imb_by_triangle(BaseLB::LDStats *statsData) {
+  for(int obj = 0 ; obj < statsData->objData.size(); obj++) {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable) {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+    double numNodes = statsData->procs.size();
+    double min_load = 10.0, max_load = 25.0;
+    int midpoint = numNodes / 2;
+    double load;
+    if (pe <= midpoint) {
+        // Increasing load to the midpoint
+        load = min_load + (max_load - min_load) * (double)pe / midpoint;
+    } else {
+        // Decreasing load after the midpoint
+        load = max_load - (max_load - min_load) * (double)(pe - midpoint) / (numNodes - midpoint - 1);
+    }
+    statsData->objData[obj].wallTime = load;   
+  }
+}
+
+static void load_imb_by_dynamic_spike(BaseLB::LDStats *statsData) {
+  for(int obj = 0 ; obj < statsData->objData.size(); obj++) {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable) {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+    double load;
+    double spike_probability = 0.05; // Probability of a random spike in any loop iteration
+    double spike_factor = 1.5; // Increase factor during the spike
+    if (drand48() < spike_probability && pe % 2 == 0) {
+      load *= spike_factor; // Increase load for even-numbered PEs during a spike
+    }
+    statsData->objData[obj].wallTime = load;   
   }
 }
 

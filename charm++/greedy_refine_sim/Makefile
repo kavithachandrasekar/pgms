@@ -1,6 +1,6 @@
 -include ../../../common.mk
 OPTS	= -g
-CHARMC	= ../../../../../mpi-linux-x86_64-smp/bin/charmc $(OPTS)
+CHARMC	= ../../../charm/mpi-linux-x86_64-smp/bin/charmc $(OPTS)
 
 OBJS = GreedyRefineLB.o
 
@@ -12,7 +12,7 @@ GreedyRefine: $(OBJS)
 GreedyRefineLB.decl.h: GreedyRefineLB.ci
 	$(CHARMC)  GreedyRefineLB.ci
 
-GreedyRefineLB.o: GreedyRefineLB.C GreedyRefineLB.decl.h
+GreedyRefineLB.o: GreedyRefineLB.C GreedyRefineLB.decl.h ../sim_headers/common_lbsim.h
 	$(CHARMC) -c GreedyRefineLB.C
 
 clean:

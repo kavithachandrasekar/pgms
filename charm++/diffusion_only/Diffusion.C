@@ -56,6 +56,13 @@ class Main : public CBase_Main {
         obj_imb = (obj_imb_funcptr) load_imb_by_pe;
       else if(fn_type == 2)
         obj_imb = (obj_imb_funcptr) load_imb_by_history;
+      else if(fn_type == 3)
+        obj_imb = (obj_imb_funcptr) load_imb_by_linear;
+      else if(fn_type == 4)
+        obj_imb = (obj_imb_funcptr) load_imb_by_triangle;
+      else if(fn_type == 5)
+        obj_imb = (obj_imb_funcptr) load_imb_by_dynamic_spike;
+
     }
     const char* filename = "lbdata.dat.0";
         int i;
@@ -255,7 +262,7 @@ void Diffusion::createObjList(){
       continue;
     }
     double load = statsData->objData[obj].wallTime;
-    objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
+    objects.push_back(CkVertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
   }
 

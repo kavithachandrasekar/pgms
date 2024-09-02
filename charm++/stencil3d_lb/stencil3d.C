@@ -116,9 +116,18 @@ class Main : public CBase_Main {
       CkPrintf("Running Stencil on %d processors with (%d, %d, %d) chares\n", CkNumPes(), num_chare_x, num_chare_y, num_chare_z);
       CkPrintf("Array Dimensions: %d %d %d\n", arrayDimX, arrayDimY, arrayDimZ);
       CkPrintf("Block Dimensions: %d %d %d\n", blockDimX, blockDimY, blockDimZ);
+      
+      
+      // Create a new map object
+      CProxy_BlockMap2 myMap = CProxy_BlockMap2::ckNew(num_chare_x, num_chare_y, num_chare_z, CkNumPes());
+      CkArrayOptions opts(num_chare_x, num_chare_y, num_chare_z);
+      opts.setMap(myMap);
 
       // Create new array of worker chares
-      array = CProxy_Stencil::ckNew(num_chare_x, num_chare_y, num_chare_z);
+      array = CProxy_Stencil::ckNew(opts);
+
+      // Create new array of worker chares
+      // array = CProxy_Stencil::ckNew(num_chare_x, num_chare_y, num_chare_z);
 
       //Start the computation
       array.doStep();
@@ -129,6 +138,60 @@ class Main : public CBase_Main {
       CkExit();
     }
 };
+
+/** \class BlockMap2
+ *
+ */
+
+class BlockMap2 : public CkArrayMap {
+public:
+  int ratiox, ratioy, ratioz;
+  int penum;
+  double procDim;
+
+  // bool isPerfectCube(double n) {
+  //   double cube_root = cbrt(n);
+  //   return (cube_root == floor(cube_root));
+
+  // }
+  // BlockMap2(void) {}
+  // BlockMap2(CkMigrateMessage* m){}
+  BlockMap2(int numx, int numy, int numz, double proc_numxyz) {
+    procDim = int(cbrt(proc_numxyz));
+    if (procDim*procDim*procDim != proc_numxyz) {
+      CkAbort("Block map requires a power of three number of PEs\n");
+    }
+    else{
+      ratiox = numx / procDim;
+      ratioy = numy / procDim;
+      ratioz = numz / procDim;
+    }
+  }
+  int registerArray(CkArrayIndex& numElements,CkArrayID aid) {
+    return 0;
+  }
+  // Call that returns the homePE of element with index idx
+  int procNum(int arrayHdl, const CkArrayIndex& idx) {
+    // Sum up the number of ints in the index (not the same as dimension)
+    int x, y, z;
+    x = ((int*)idx.data())[0];
+    y = ((int*)idx.data())[1];
+    z = ((int*)idx.data())[2];
+
+    int procx, procy, procz;
+
+    procx = x / ratiox;
+    procy = y / ratioy;
+    procz = z / ratioz;
+
+    penum = procx*procDim*procDim + procy*procDim + procz;
+
+    // printf("[PE %d] index:(%d, %d, %d) procindex: (%d, %d, %d) penum: %d\n", CkMyPe(), x, y, z, procx, procy, procz, penum);
+    // Mask the sum to a PE number
+    return penum;
+  }
+};
+
 
 /** \class Stencil
  *
