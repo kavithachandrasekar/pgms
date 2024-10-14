@@ -172,6 +172,8 @@ class Stencil: public CBase_Stencil {
     , backGhost(blockDimX*blockDimY)
     {
       usesAtSync = true;
+      std::vector<LBRealType> centroid = {(LBRealType)thisIndex.x, (LBRealType)thisIndex.y, (LBRealType)thisIndex.z};
+      setObjPosition(centroid);
 
       constrainBC();
       // start measuring time
