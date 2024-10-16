@@ -32,6 +32,7 @@ public:
 
     void createObjs();
     void createObjList();
+    void createDistNList();
 
 /* 3D neighbors */
     void pick3DNbors();
@@ -43,14 +44,18 @@ public:
 
 /* comm graph-based neighbors */
     void sortArr(long arr[], int n, int *nbors);
+    void pairedSort(int *A, long *B, int n);
 
     bool obj_on_node(int objId);
     void LoadBalancing();
     int get_obj_idx(int objHandleId);
-    std::vector<int>map_obj_id;
-    std::vector<int>map_obid_pe;
+    std::vector<LBRealType> getCentroid(int pe);
+    std::vector<int> map_obj_id;
+    std::vector<int> map_obid_pe;
+    std::vector<std::vector<LBRealType>> map_pe_centroid;
     int edgeCount;
     std::vector<int> edge_indices;
+
 private:
     // aggregate load received
     int itr;

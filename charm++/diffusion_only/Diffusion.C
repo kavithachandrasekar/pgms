@@ -105,29 +105,73 @@ class Main : public CBase_Main {
   //  statsData->print();
     diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
   }
-  void init(){
-//    CkPrintf("\nDone init");
-    for(int i=0;i<numNodes;i++) {
-      Diffusion *diff_obj= diff_array(i).ckLocal();
-      diff_obj->statsData = statsData;
-      if(i==0) {
+  void init()
+  {
+    // initiating algorithm, iterating over "nodes"
+    for (int i = 0; i < numNodes; i++)
+    {
+      Diffusion *diff_obj = diff_array(i).ckLocal();
+
+      if (diff_obj == NULL)
+      {
+        CkPrintf("ERROR: diff obj is not local\n");
+        CkExit();
+      }
+      diff_obj->statsData = statsData; // all diffusion objects get the same statsData
+    }
+
+    Diffusion *diff_obj0 = diff_array(0).ckLocal();
+
         obj_imb(statsData);
-        diff_obj->map_obj_id.reserve(statsData->objData.size());
-        diff_obj->map_obid_pe.reserve(statsData->objData.size());
-        for(int obj = 0; obj < statsData->objData.size(); obj++) {
+    diff_obj0->map_obj_id.reserve(statsData->objData.size());
+    diff_obj0->map_obid_pe.reserve(statsData->objData.size());
+
+#if CENTROID == 1
+    CkPrintf("Using CENTROID approach\n");
+
+    int positionDim = statsData->objData[0].position.size();
+    std::vector<std::vector<LBRealType>> pe_centroids(numNodes, std::vector<LBRealType>(positionDim, 0.0));
+    std::vector<int> pe_obj_count(numNodes, 0);
+#endif
+
+    for (int obj = 0; obj < statsData->objData.size(); obj++)
+    {
+// compute node-aggregate centroids
+#if CENTROID == 1
+      int obj_pe = statsData->from_proc[obj];
+      std::vector<LBRealType> obj_pos = statsData->objData[obj].position;
+      for (int comp = 0; comp < positionDim; comp++)
+        pe_centroids[obj_pe][comp] += obj_pos[comp];
+      pe_obj_count[obj_pe]++;
+#endif
+
           LDObjData &oData = statsData->objData[obj];
           if (!oData.migratable)
             continue;
-//          CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
-          diff_obj->map_obj_id[obj] = oData.objID();
-          diff_obj->map_obid_pe[obj] = statsData->from_proc[obj];
+      // CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
+      diff_obj0->map_obj_id[obj] = oData.objID();
+      diff_obj0->map_obid_pe[obj] = statsData->from_proc[obj];
         }
+
+#if CENTROID == 1
+    // finding aggregate centroids
+    for (int i = 0; i < numNodes; i++)
+    {
+      for (int comp = 0; comp < positionDim; comp++)
+      {
+        pe_centroids[i][comp] /= pe_obj_count[i];
       }
     }
-    CkPrintf("\ncomm edges count = %zu", statsData->commData.size());
-    Diffusion *diff_obj0 = diff_array(0).ckLocal();
 
-    for(int edge = 0; edge < statsData->commData.size(); edge++) {
+    diff_obj0->map_pe_centroid = pe_centroids;
+
+    // CkPrintf("\nCheck comm edges count = %zu\n", statsData->commData.size());
+
+// add edges to all diff_obj only if commData.fromProc() is false ?
+#else
+    CkPrintf("Using COMM approach\n");
+    for (int edge = 0; edge < statsData->commData.size(); edge++)
+    {
       LDCommData &commData = statsData->commData[edge];
       if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
         LDObjKey from = commData.sender;
@@ -138,6 +182,7 @@ class Main : public CBase_Main {
         diff_obj->edge_indices.push_back(edge);
       }
     }
+#endif
 
     diff_array.AtSync();
   }
