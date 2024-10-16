@@ -1,83 +1,101 @@
 #define STANDALONE_DIFF
 #ifdef STANDALONE_DIFF
-mainmodule Diffusion {
+mainmodule Diffusion
+{
 #else
-module Diffusion {
+module Diffusion
+{
 #endif
 
 #ifdef STANDALONE_DIFF
   readonly CProxy_Main mainProxy;
   readonly CProxy_Diffusion diff_array;
 
-  mainchare Main {
-    entry Main(CkArgMsg *m);
-    entry [reductiontarget] void init();
-    entry [reductiontarget] void done();
+  mainchare Main
+  {
+    entry Main(CkArgMsg * m);
+    entry[reductiontarget] void init();
+    entry[reductiontarget] void done();
   };
 #endif
-/*
-  nodegroup NodeCache {
-    entry NodeCache();
-  }
-*/
-  array [1D] Diffusion {
+  /*
+    nodegroup NodeCache {
+      entry NodeCache();
+    }
+  */
+  array[1D] Diffusion
+  {
     entry Diffusion(int num_nodes);
-    entry [reductiontarget] void startDiffusion();
-    entry [reductiontarget] void MaxLoad(double val);
-    entry [reductiontarget] void AvgLoad(double val);
-    entry [reductiontarget] void findNBors(int do_again);
-    entry [reductiontarget] void pick3DNbors();
-    entry [reductiontarget] void finishLB();
+    entry[reductiontarget] void startDiffusion();
+    entry[reductiontarget] void MaxLoad(double val);
+    entry[reductiontarget] void AvgLoad(double val);
+    entry[reductiontarget] void findNBors(int do_again);
+
+    entry[reductiontarget] void pick3DNbors();
+    entry[reductiontarget] void finishLB();
     entry void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);
     entry void AtSync(void);
-    entry [reductiontarget] void createObjs(void);
+    entry[reductiontarget] void createObjs(void);
+    entry[reductiontarget] void createDistNList(void);
     entry void ReceiveLoadInfo(int itr, double load, int node);
     entry void PseudoLoad(int itr, double load, int node);
-    entry [reductiontarget] void LoadBalancing(); 
-//    entry void collectStats(int nodeId, long internalBytes_in, long externalBytes_in);
-//    entry void continueLB();
-    
-    entry void iterate() {
-      //TODO: Currently fixed iterations
-      for(itr = 0; itr < ITERATIONS; itr++) {
+    entry[reductiontarget] void LoadBalancing();
+    //    entry void collectStats(int nodeId, long internalBytes_in, long externalBytes_in);
+    //    entry void continueLB();
+
+    entry void iterate()
+    {
+      // TODO: Currently fixed iterations
+      for (itr = 0; itr < ITERATIONS; itr++)
+      {
         // Send its load
-        serial "Send loadInfo" {
-          for(int i = 0; i < neighborCount; i++) {
-//            CkPrintf("\nNode-%d sending to node%d idx(%d,%d)mod%d\n", thisIndex, sendToNeighbors[i], getX(sendToNeighbors[i]), getY(sendToNeighbors[i]), NY); fflush(stdout);
+        serial "Send loadInfo"
+        {
+          for (int i = 0; i < neighborCount; i++)
+          {
+            //            CkPrintf("\nNode-%d sending to node%d idx(%d,%d)mod%d\n", thisIndex, sendToNeighbors[i], getX(sendToNeighbors[i]), getY(sendToNeighbors[i]), NY); fflush(stdout);
             thisProxy(sendToNeighbors[i]).ReceiveLoadInfo(itr, my_load, thisIndex);
           }
         }
-           
-          // Wait for all its neighbors load
-        for(temp_itr = 0; temp_itr < neighborCount; temp_itr++) {
+
+        // Wait for all its neighbors load
+        for (temp_itr = 0; temp_itr < neighborCount; temp_itr++)
+        {
           when ReceiveLoadInfo[itr](int itr, double load, int node) serial
           {
             int pos = findNborIdx(node);
-            if(pos == -1) {
+            if (pos == -1)
+            {
               DEBUGE(("\n[1]Error in pos -1 for node id %d", node));
-            } else
+            }
+            else
               loadNeighbors[pos] = load;
           }
         }
 
         // Calculate average and do pseudo load balancing
-        serial "Pseudo LB" {
+        serial "Pseudo LB"
+        {
           avgLoadNeighbor = average();
           DEBUGL2(("[PE-%d] Received all loads of node, avg is %f and my_load %f \n", thisIndex, avgLoadNeighbor, my_load));
           PseudoLoadBalancing();
         }
 
-        for(temp_itr = 0; temp_itr < neighborCount; temp_itr++) {
-          when PseudoLoad[itr](int itr, double load, int node) serial {
+        for (temp_itr = 0; temp_itr < neighborCount; temp_itr++)
+        {
+          when PseudoLoad[itr](int itr, double load, int node) serial
+          {
             my_load += load;
-//            if(itr == ITERATIONS-1)
+            //            if(itr == ITERATIONS-1)
             DEBUGL2(("\n[Itr-%d]My [Node-%d] load after diffusion %lf (added %lf)", itr, thisIndex, my_load, load));
             int pos = findNborIdx(node);
-            if(pos == -1) {
+            if (pos == -1)
+            {
               DEBUGE(("\n[2]Error in pos -1 for nodeid %d", node));
-            } else
+            }
+            else
               toReceiveLoad[pos] += load;
           }
         }
@@ -90,7 +108,8 @@ module Diffusion {
       }
 
       // Calculate the aggregate load that has to be sent.
-      serial {
+      serial
+      {
         AggregateToSend();
         CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
         contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
@@ -100,4 +119,3 @@ module Diffusion {
     }
   };
 };
-
