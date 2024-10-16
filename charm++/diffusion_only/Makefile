@@ -9,12 +9,15 @@ all: Diffusion
 Diffusion: $(OBJS)
 	$(CHARMC) -language charm++ -o Diffusion $(OBJS)
 
-Diffusion.decl.h: Diffusion.ci
-	$(CHARMC)  Diffusion.ci
+Diffusion.def.h Diffusion.decl.h: Diffusion.ci.stamp
 
-Diffusion.o: Diffusion.C Diffusion.decl.h
+Diffusion.ci.stamp: Diffusion.ci
+	$(CHARMC) $<
+	touch $@
+
+Diffusion.o: Diffusion.C Diffusion.decl.h Diffusion.def.h Diffusion.h ../sim_headers/common_lbsim.h
 	$(CHARMC) -c Diffusion.C
 
 clean:
-	rm -f *.decl.h *.def.h conv-host *.o Diffusion Diffusion.prj charmrun *~
+	rm -f *.decl.h *.def.h conv-host *.o Diffusion Diffusion.prj charmrun *~ *.stamp
 
