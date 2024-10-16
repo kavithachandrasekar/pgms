@@ -18,7 +18,7 @@
 #define DEBUGL2(x) /*CmiPrintf x*/;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NUM_NEIGHBORS 8
+#define NUM_NEIGHBORS 4
 
 #define ITERATIONS 80
 
@@ -255,7 +255,7 @@ void Diffusion::createObjList(){
       continue;
     }
     double load = statsData->objData[obj].wallTime;
-    objects.push_back(Vertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
+    objects.push_back(CkVertex(oData.handle.objID(), load, statsData->objData[obj].migratable, pe));
     my_load += load;
   }
 
