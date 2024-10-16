@@ -11,11 +11,10 @@
 #include "CentralLB.h"
 #include "Diffusion.decl.h"
 
-typedef void (*callback_function)(void*);
-class Diffusion : public CBase_Diffusion {
-    Diffusion_SDAG_CODE
-public:
-    Diffusion(int num_nodes);
+typedef void (*callback_function)(void *);
+class Diffusion : public CBase_Diffusion
+{
+    Diffusion_SDAG_CODE public : Diffusion(int num_nodes);
     ~Diffusion();
     void AtSync(void);
     void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
@@ -26,7 +25,7 @@ public:
     void finishLB();
 
     void passPtrs(double *loadNbors, double *toSendLd,
-                              double *toRecvLd, void (*func)(void*), void* obj);
+                  double *toRecvLd, void (*func)(void *), void *obj);
 
     int obj_node_map(int objId);
 
@@ -34,15 +33,15 @@ public:
     void createObjList();
     void createDistNList();
 
-/* 3D neighbors */
+    /* 3D neighbors */
     void pick3DNbors();
 
-/* randomly picked neighbors */
+    /* randomly picked neighbors */
     void findNBors(int do_again);
     void proposeNbor(int nborId);
     void okayNbor(int agree, int nborId);
 
-/* comm graph-based neighbors */
+    /* comm graph-based neighbors */
     void sortArr(long arr[], int n, int *nbors);
     void pairedSort(int *A, long *B, int n);
 
@@ -70,7 +69,7 @@ private:
     int numNodes;
     int received_nodes;
     int notif;
-    int* pe_obj_count;
+    int *pe_obj_count;
     double *loadNeighbors;
     int *nbors;
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
@@ -78,28 +77,28 @@ private:
     std::vector<std::vector<int>> objectComms;
     int neighborCount;
     bool finished;
-    double* toSendLoad;
-    double* toReceiveLoad;
+    double *toSendLoad;
+    double *toReceiveLoad;
 
     double avgLoadNeighbor;
 
     // heap
-    int* obj_arr;
-    int* gain_val;
+    int *obj_arr;
+    int *gain_val;
     std::vector<int> obj_heap;
     std::vector<int> heap_pos;
 
-
     callback_function cb;
-    void* objPtr;
+    void *objPtr;
 
     bool AggregateToSend();
-    double  average();
+    double average();
     double averagePE();
     int findNborIdx(int node);
     void PseudoLoadBalancing();
-    void InitializeObjHeap(int* obj_arr, int n, int* gain_val);
+    void InitializeObjHeap(int *obj_arr, int n, int *gain_val);
     void createCommList();
+
 public:
     BaseLB::LDStats *statsData;
     double my_load;
@@ -107,4 +106,3 @@ public:
 };
 
 #endif /* _DistributedLB_H_ */
-
