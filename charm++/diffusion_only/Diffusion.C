@@ -180,6 +180,7 @@ public:
 // add edges to all diff_obj only if commData.fromProc() is false ?
 #else
     CkPrintf("Using COMM approach\n");
+#endif
     for (int edge = 0; edge < statsData->commData.size(); edge++)
     {
       LDCommData &commData = statsData->commData[edge];
@@ -194,7 +195,6 @@ public:
         // CkPrintf("\nEdge %d from %d to %d", edge, fromNode, diff_obj0->obj_node_map(diff_obj0->get_obj_idx(commData.receiver.get_destObj().objID())));
       }
     }
-#endif
 
     diff_array.AtSync();
   }
@@ -450,7 +450,11 @@ void Diffusion::AvgLoad(double val)
     {
       CkPrintf("\n-----------------------------------------------");
       computeCommBytes(statsData, this, 1);
+#if CENTROID == 1
+      thisProxy.LoadBalancingCentroids();
+#else
       thisProxy.LoadBalancing();
+#endif
     }
   }
 #else
@@ -745,6 +749,7 @@ void Diffusion::LoadBalancing()
 
   // contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
 }
+
 void Diffusion::InitializeObjHeap(int *obj_arr, int n, int *gain_val)
 {
   for (int i = 0; i < n; i++)
@@ -754,6 +759,165 @@ void Diffusion::InitializeObjHeap(int *obj_arr, int n, int *gain_val)
     heap_pos[obj_arr[i]] = i;
   }
   heapify(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
+}
+
+void Diffusion::LoadBalancingCentroids()
+{
+
+  int n_objs = objects.size();
+  DEBUGL(("[SimNode#%d] GRD: Load Balancing w objects size = %d \n", thisIndex, n_objs));
+  fflush(stdout);
+
+  // For each object, store its distance to current centroid (as gain val)
+  // and store dist to all neighboring node centroids
+  std::vector<std::vector<double>> map_obj_to_neighbor_dist(n_objs);
+  std::vector<double> map_obj_to_load(n_objs);
+  std::vector<int> obj_idx_to_id(n_objs);
+
+  double *gain_value = new double[n_objs];
+
+  for (int i = 0; i < n_objs; i++)
+  {
+    int obj_id = statsData->objData[i].objID();
+    obj_idx_to_id[i] = obj_id;
+
+    int obj_pe = statsData->from_proc[i];
+    if (obj_pe != thisIndex)
+    {
+      gain_value[i] = -1;
+      continue;
+    }
+
+    // object load is just wall time
+    map_obj_to_load[i] = statsData->objData[i].wallTime;
+
+    // current object is local
+    std::vector<LBRealType> obj_pos = statsData->objData[i].position;
+
+    // gain_value is just the distance to the current centroid
+    std::vector<LBRealType> curr_centroid = getCentroid(thisIndex);
+    gain_value[i] = (double)computeDistance(obj_pos, curr_centroid);
+
+    // store the distance to all other centroids
+    map_obj_to_neighbor_dist[i].resize(neighborCount);
+    for (int n = 0; n < neighborCount; n++)
+    {
+      std::vector<LBRealType> n_centroid = getCentroid(sendToNeighbors[n]);
+      map_obj_to_neighbor_dist[i][n] = computeDistance(obj_pos, n_centroid);
+    }
+  }
+
+  // For sorting: make pairs of object id and gain value
+  std::vector<std::pair<double, int>> obj_gain_pairs(n_objs);
+  for (int i = 0; i < n_objs; i++)
+  {
+    obj_gain_pairs[i] = std::make_pair(gain_value[i], i);
+  }
+
+  // SORT: sort the objects based on gain value (in decreasing order)
+  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
+
+  // Migration: iteratively picking item with most gain value
+  while (my_load_after_transfer > 0.0)
+  {
+    if (obj_gain_pairs.empty())
+    {
+      break;
+    }
+
+    // pop front item out of sorted list (highest gain value)
+    int obj_idx = obj_gain_pairs[0].second;
+    int obj_gain = obj_gain_pairs[0].first;
+    obj_gain_pairs.erase(obj_gain_pairs.begin());
+
+    if (obj_gain == -1)
+    {
+      break;
+    }
+
+    int obj_pe = statsData->from_proc[obj_idx];
+
+    if (!obj_on_node(obj_idx_to_id[obj_idx]))
+    {
+      if (obj_gain != -1)
+      {
+        CmiPrintf("ERROR: Object %d on node %d. Current node: %d, but obj_gain set to %f\n", obj_idx, obj_pe, thisIndex, obj_gain);
+        CkExit();
+      }
+
+      continue;
+    }
+
+    if (statsData->objData[obj_idx].migratable)
+    {
+      continue;
+    }
+
+    double currLoad = map_obj_to_load[obj_idx];
+
+    // compute (neighbor_distance, neighbor_id) pairs for this object
+    std::vector<std::pair<double, int>> neighbor_dist_pairs(neighborCount);
+    for (int n = 0; n < neighborCount; n++)
+    {
+      int neighborId = sendToNeighbors[n];
+      int objDist = map_obj_to_neighbor_dist[obj_idx][n];
+      neighbor_dist_pairs[n] = std::make_pair(objDist, neighborId);
+    }
+
+    // sort the neighbors based on distance to this object
+    std::sort(neighbor_dist_pairs.begin(), neighbor_dist_pairs.end());
+
+    // find the first neighbor that can take this object
+    int toNeighbor = -1;
+    for (int n = 0; n < neighborCount; n++)
+    {
+      int n_id = neighbor_dist_pairs[n].second;
+      int n_idx = findNborIdx(n_id);
+      if (toSendLoad[n_idx] > 0.0 && currLoad <= toSendLoad[n_idx] * 1.35)
+      {
+        toNeighbor = n_id;
+        break;
+      }
+    }
+
+    int toSendId = sendToNeighbors[toNeighbor];
+    toSendLoad[toSendId] -= currLoad;
+    loadNeighbors[toSendId] += currLoad;
+    my_load_after_transfer -= currLoad;
+
+    Diffusion *diff0 = diff_array(0).ckLocal();
+    diff0->map_obid_pe[obj_idx] = toSendId;
+
+    Diffusion *diffRecv = diff_array(toSendId).ckLocal();
+    diffRecv->my_load_after_transfer += currLoad;
+
+  } // end of while
+
+  // DEBUG: compute total leftover load to send... just for printing purposes?
+  for (int i = 0; i < neighborCount; i++)
+  {
+    double to_send_total = 0.0;
+    if (toSendLoad[i] > 0.0)
+    {
+      to_send_total += toSendLoad[i];
+      DEBUGL(("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total, sendToNeighbors[i]));
+    }
+  }
+
+  // FINAL STAGE
+  CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
+  contribute(cbm);
+}
+
+LBRealType Diffusion::computeDistance(std::vector<LBRealType> a, std::vector<LBRealType> b)
+{
+  LBRealType dist = 0.0;
+  for (int i = 0; i < a.size(); i++)
+  {
+    dist += (a[i] - b[i]) * (a[i] - b[i]);
+  }
+  dist = sqrt(dist);
+  return dist;
 }
 
 #include "Diffusion.def.h"

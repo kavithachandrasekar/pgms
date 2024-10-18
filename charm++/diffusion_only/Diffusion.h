@@ -47,6 +47,7 @@ class Diffusion : public CBase_Diffusion
 
     bool obj_on_node(int objId);
     void LoadBalancing();
+    void LoadBalancingCentroids();
     int get_obj_idx(int objHandleId);
     std::vector<LBRealType> getCentroid(int pe);
     std::vector<int> map_obj_id;
@@ -98,6 +99,8 @@ private:
     void PseudoLoadBalancing();
     void InitializeObjHeap(int *obj_arr, int n, int *gain_val);
     void createCommList();
+
+    LBRealType computeDistance(std::vector<LBRealType> myCentroid, std::vector<LBRealType> oppCentroid);
 
 public:
     BaseLB::LDStats *statsData;
