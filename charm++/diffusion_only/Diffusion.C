@@ -53,15 +53,20 @@ public:
   Main(CkArgMsg *m)
   {
     mainProxy = thisProxy;
-    if (m->argc > 1)
+    if (m->argc != 4)
     {
-      int fn_type = atoi(m->argv[1]);
-      if (fn_type == 1)
-        obj_imb = (obj_imb_funcptr)load_imb_by_pe;
-      else if (fn_type == 2)
-        obj_imb = (obj_imb_funcptr)load_imb_by_history;
+      CkPrintf("Usage: ./Diffusion <load_imb_fn: 1,2>, <filename>, <comm/centroid: 1,2>\n");
+      CkExit();
     }
-    const char *filename = "lbdata.dat.0";
+    int fn_type = atoi(m->argv[1]);
+    if (fn_type == 1)
+      obj_imb = (obj_imb_funcptr)load_imb_by_pe;
+    else if (fn_type == 2)
+      obj_imb = (obj_imb_funcptr)load_imb_by_history;
+
+    centroid = atoi(m->argv[3]) == 2;
+
+    const char *filename = m->argv[2];
     int i;
     FILE *f = fopen(filename, "r");
     if (f == NULL)
@@ -136,24 +141,22 @@ public:
     diff_obj0->map_obj_id.reserve(statsData->objData.size());
     diff_obj0->map_obid_pe.reserve(statsData->objData.size());
 
-#if CENTROID == 1
-    CkPrintf("Using CENTROID approach\n");
-
+    // centroid relevant variables
     int positionDim = statsData->objData[0].position.size();
     std::vector<std::vector<LBRealType>> pe_centroids(numNodes, std::vector<LBRealType>(positionDim, 0.0));
     std::vector<int> pe_obj_count(numNodes, 0);
-#endif
 
     for (int obj = 0; obj < statsData->objData.size(); obj++)
     {
-// compute node-aggregate centroids
-#if CENTROID == 1
-      int obj_pe = statsData->from_proc[obj];
-      std::vector<LBRealType> obj_pos = statsData->objData[obj].position;
-      for (int comp = 0; comp < positionDim; comp++)
-        pe_centroids[obj_pe][comp] += obj_pos[comp];
-      pe_obj_count[obj_pe]++;
-#endif
+      // compute node-aggregate centroids
+      if (centroid)
+      {
+        int obj_pe = statsData->from_proc[obj];
+        std::vector<LBRealType> obj_pos = statsData->objData[obj].position;
+        for (int comp = 0; comp < positionDim; comp++)
+          pe_centroids[obj_pe][comp] += obj_pos[comp];
+        pe_obj_count[obj_pe]++;
+      }
 
       LDObjData &oData = statsData->objData[obj];
       if (!oData.migratable)
@@ -163,24 +166,24 @@ public:
       diff_obj0->map_obid_pe[obj] = statsData->from_proc[obj];
     }
 
-#if CENTROID == 1
-    // finding aggregate centroids
-    for (int i = 0; i < numNodes; i++)
+    if (centroid)
     {
-      for (int comp = 0; comp < positionDim; comp++)
+      CkPrintf("Using CENTROID approach\n");
+      // finding aggregate centroids
+      for (int i = 0; i < numNodes; i++)
       {
-        pe_centroids[i][comp] /= pe_obj_count[i];
+        for (int comp = 0; comp < positionDim; comp++)
+        {
+          pe_centroids[i][comp] /= pe_obj_count[i];
+        }
       }
+
+      diff_obj0->map_pe_centroid = pe_centroids;
     }
-
-    diff_obj0->map_pe_centroid = pe_centroids;
-
-    // CkPrintf("\nCheck comm edges count = %zu\n", statsData->commData.size());
-
-// add edges to all diff_obj only if commData.fromProc() is false ?
-#else
-    CkPrintf("Using COMM approach\n");
-#endif
+    else
+    {
+      CkPrintf("Using COMM approach\n");
+    }
     for (int edge = 0; edge < statsData->commData.size(); edge++)
     {
       LDCommData &commData = statsData->commData[edge];
@@ -450,11 +453,10 @@ void Diffusion::AvgLoad(double val)
     {
       CkPrintf("\n-----------------------------------------------\n");
       computeCommBytes(statsData, this, 1);
-#if CENTROID == 1
-      thisProxy.LoadBalancingCentroids();
-#else
-      thisProxy.LoadBalancing();
-#endif
+      if (centroid)
+        thisProxy.LoadBalancingCentroids();
+      else
+        thisProxy.LoadBalancing();
     }
   }
 #else

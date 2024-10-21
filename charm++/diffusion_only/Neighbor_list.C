@@ -1,5 +1,5 @@
 /* Pick NUM_NEIGHBORS in random */
-#define CENTROID 0
+/*readonly*/ bool centroid;
 
 void Diffusion::createCommList()
 {
@@ -36,14 +36,18 @@ void Diffusion::createCommList()
 
 void Diffusion::findNBors(int do_again)
 {
+  DEBUGL(("\nNode-%d, round =%d, sendToNeighbors.size() = %d", thisIndex, round, sendToNeighbors.size()));
   if (round == 0)
   {
-#if CENTROID == 1
-    pick = 0;
-    createDistNList();
-#else
-    createCommList();
-#endif
+    if (centroid)
+    {
+      pick = 0;
+      createDistNList();
+    }
+    else
+    {
+      createCommList();
+    }
   }
 
   requests_sent = 0;
