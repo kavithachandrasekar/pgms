@@ -163,6 +163,13 @@ public:
       diff_obj0->map_obid_pe[obj] = statsData->from_proc[obj];
     }
 
+    CkPrintf("Original mapping: ");
+    for (int i = 0; i < statsData->from_proc.size(); i++)
+    {
+      CkPrintf("%d ", statsData->from_proc[i]);
+    }
+    CkPrintf("\n");
+
 #if CENTROID == 1
     // finding aggregate centroids
     for (int i = 0; i < numNodes; i++)
@@ -441,7 +448,7 @@ void Diffusion::AvgLoad(double val)
 {
   done++;
   if (thisIndex == 0)
-    DEBUGF(("\n[%d]Avg Node load = %lf", done, val / numNodes));
+    DEBUGF(("\n[%d]Avg Node load = %lf\n", done, val / numNodes));
 #ifdef STANDALONE_DIFF
   //  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes);
   if (done == 1)
@@ -764,35 +771,31 @@ void Diffusion::InitializeObjHeap(int *obj_arr, int n, int *gain_val)
 void Diffusion::LoadBalancingCentroids()
 {
 
-  int n_objs = objects.size();
-  DEBUGL(("[SimNode#%d] GRD: Load Balancing w objects size = %d \n", thisIndex, n_objs));
-  fflush(stdout);
+  int n_objs = objects.size(); // objects only includes objects on my node?
 
   // For each object, store its distance to current centroid (as gain val)
   // and store dist to all neighboring node centroids
   std::vector<std::vector<double>> map_obj_to_neighbor_dist(n_objs);
   std::vector<double> map_obj_to_load(n_objs);
-  std::vector<int> obj_idx_to_id(n_objs);
+  std::vector<int> obj_local_to_global(n_objs);
 
   double *gain_value = new double[n_objs];
 
   for (int i = 0; i < n_objs; i++)
   {
-    int obj_id = statsData->objData[i].objID();
-    obj_idx_to_id[i] = obj_id;
-
-    int obj_pe = statsData->from_proc[i];
-    if (obj_pe != thisIndex)
+    int objHandle = objects[i].getVertexId();
+    int obj_idx = get_obj_idx(objHandle); // gets global obj index
+    obj_local_to_global[i] = obj_idx;
+    if (!obj_on_node(obj_idx))
     {
-      gain_value[i] = -1;
-      continue;
+      CmiAbort("ERROR: object %d not on node %d\n", obj_idx, thisIndex);
     }
 
     // object load is just wall time
-    map_obj_to_load[i] = statsData->objData[i].wallTime;
+    map_obj_to_load[i] = statsData->objData[obj_idx].wallTime;
 
     // current object is local
-    std::vector<LBRealType> obj_pos = statsData->objData[i].position;
+    std::vector<LBRealType> obj_pos = statsData->objData[obj_idx].position;
 
     // gain_value is just the distance to the current centroid
     std::vector<LBRealType> curr_centroid = getCentroid(thisIndex);
@@ -826,41 +829,32 @@ void Diffusion::LoadBalancingCentroids()
     }
 
     // pop front item out of sorted list (highest gain value)
-    int obj_idx = obj_gain_pairs[0].second;
+    int obj_local_idx = obj_gain_pairs[0].second;
     int obj_gain = obj_gain_pairs[0].first;
     obj_gain_pairs.erase(obj_gain_pairs.begin());
 
-    if (obj_gain == -1)
+    int obj_global_idx = obj_local_to_global[obj_local_idx];
+
+    if (!obj_on_node(obj_global_idx))
     {
-      break;
+      CkAbort("ERROR: Object %d not on node %d\n", obj_global_idx, thisIndex);
     }
 
-    int obj_pe = statsData->from_proc[obj_idx];
+    int obj_pe = thisIndex;
 
-    if (!obj_on_node(obj_idx_to_id[obj_idx]))
+    if (!statsData->objData[obj_global_idx].migratable)
     {
-      if (obj_gain != -1)
-      {
-        CmiPrintf("ERROR: Object %d on node %d. Current node: %d, but obj_gain set to %f\n", obj_idx, obj_pe, thisIndex, obj_gain);
-        CkExit();
-      }
-
-      continue;
+      CkAbort("Object in objects list must be migratable: obj %d on pe %d\n", obj_global_idx, obj_pe);
     }
 
-    if (statsData->objData[obj_idx].migratable)
-    {
-      continue;
-    }
-
-    double currLoad = map_obj_to_load[obj_idx];
+    double currLoad = map_obj_to_load[obj_local_idx];
 
     // compute (neighbor_distance, neighbor_id) pairs for this object
     std::vector<std::pair<double, int>> neighbor_dist_pairs(neighborCount);
     for (int n = 0; n < neighborCount; n++)
     {
       int neighborId = sendToNeighbors[n];
-      int objDist = map_obj_to_neighbor_dist[obj_idx][n];
+      int objDist = map_obj_to_neighbor_dist[obj_local_idx][n];
       neighbor_dist_pairs[n] = std::make_pair(objDist, neighborId);
     }
 
@@ -886,7 +880,8 @@ void Diffusion::LoadBalancingCentroids()
     my_load_after_transfer -= currLoad;
 
     Diffusion *diff0 = diff_array(0).ckLocal();
-    diff0->map_obid_pe[obj_idx] = toSendId;
+    CkPrintf("Migrating obj %d from node %d to node %d\n", obj_global_idx, thisIndex, toSendId);
+    diff0->map_obid_pe[obj_global_idx] = toSendId;
 
     Diffusion *diffRecv = diff_array(toSendId).ckLocal();
     diffRecv->my_load_after_transfer += currLoad;
