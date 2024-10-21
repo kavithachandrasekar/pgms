@@ -163,13 +163,6 @@ public:
       diff_obj0->map_obid_pe[obj] = statsData->from_proc[obj];
     }
 
-    CkPrintf("Original mapping: ");
-    for (int i = 0; i < statsData->from_proc.size(); i++)
-    {
-      CkPrintf("%d ", statsData->from_proc[i]);
-    }
-    CkPrintf("\n");
-
 #if CENTROID == 1
     // finding aggregate centroids
     for (int i = 0; i < numNodes; i++)
@@ -233,7 +226,7 @@ public:
 
     CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
 
-    CkPrintf("\nDONE");
+    CkPrintf("DONE\n");
     fflush(stdout);
     CkExit(0);
   }
@@ -371,7 +364,7 @@ int Diffusion::get_obj_idx(int objHandleId)
       return i;
     }
   }
-  CkPrintf("\nNot found");
+  CkPrintf("Not found\n");
   return -1;
 }
 
@@ -438,7 +431,7 @@ void Diffusion::MaxLoad(double val)
 {
   if (finished)
     computeCommBytes(statsData, this, 0);
-  DEBUGF(("\n[Iter: %d] Max PE load = %lf\n", itr, val));
+  DEBUGF(("[Iter: %d] Max PE load = %lf\n", itr, val));
   fflush(stdout);
   if (finished)
     mainProxy.done();
@@ -448,14 +441,14 @@ void Diffusion::AvgLoad(double val)
 {
   done++;
   if (thisIndex == 0)
-    DEBUGF(("\n[%d]Avg Node load = %lf\n", done, val / numNodes));
+    DEBUGF(("[%d]Avg Node load = %lf\n", done, val / numNodes));
 #ifdef STANDALONE_DIFF
   //  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes);
   if (done == 1)
   {
     if (thisIndex == 0)
     {
-      CkPrintf("\n-----------------------------------------------");
+      CkPrintf("\n-----------------------------------------------\n");
       computeCommBytes(statsData, this, 1);
 #if CENTROID == 1
       thisProxy.LoadBalancingCentroids();
@@ -824,9 +817,7 @@ void Diffusion::LoadBalancingCentroids()
   while (my_load_after_transfer > 0.0)
   {
     if (obj_gain_pairs.empty())
-    {
       break;
-    }
 
     // pop front item out of sorted list (highest gain value)
     int obj_local_idx = obj_gain_pairs[0].second;
@@ -836,16 +827,10 @@ void Diffusion::LoadBalancingCentroids()
     int obj_global_idx = obj_local_to_global[obj_local_idx];
 
     if (!obj_on_node(obj_global_idx))
-    {
       CkAbort("ERROR: Object %d not on node %d\n", obj_global_idx, thisIndex);
-    }
-
-    int obj_pe = thisIndex;
 
     if (!statsData->objData[obj_global_idx].migratable)
-    {
-      CkAbort("Object in objects list must be migratable: obj %d on pe %d\n", obj_global_idx, obj_pe);
-    }
+      CkAbort("Object in objects list must be migratable: obj %d on pe %d\n", obj_global_idx, thisIndex);
 
     double currLoad = map_obj_to_load[obj_local_idx];
 
@@ -853,7 +838,6 @@ void Diffusion::LoadBalancingCentroids()
     std::vector<std::pair<double, int>> neighbor_dist_pairs(neighborCount);
     for (int n = 0; n < neighborCount; n++)
     {
-      int globalNeighborId = sendToNeighbors[n];
       int localNeighborId = n;
       int objDist = map_obj_to_neighbor_dist[obj_local_idx][localNeighborId];
       neighbor_dist_pairs[localNeighborId] = std::make_pair(objDist, localNeighborId);
@@ -874,11 +858,13 @@ void Diffusion::LoadBalancingCentroids()
       }
     }
 
+    // no neighbor chosen, obj doesn't migrate
     if (localToSendNeighbor == -1)
-    {
       continue;
-    }
 
+    // object and neighbor have been chosen
+    // localToSendNeighbor is the id of the neighbor in local context (used in sendToNeighbors, toSendLoad, etc.)
+    // globalNeighborId is the global id of the neighbor (used in map_obid_pe and other global contexts)
     int globalNeighborId = sendToNeighbors[localToSendNeighbor];
     toSendLoad[localToSendNeighbor] -= currLoad;
     loadNeighbors[localToSendNeighbor] += currLoad;
@@ -889,21 +875,8 @@ void Diffusion::LoadBalancingCentroids()
 
     Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
     diffRecv->my_load_after_transfer += currLoad;
-
-  } // end of while
-
-  // DEBUG: compute total leftover load to send... just for printing purposes?
-  for (int i = 0; i < neighborCount; i++)
-  {
-    double to_send_total = 0.0;
-    if (toSendLoad[i] > 0.0)
-    {
-      to_send_total += toSendLoad[i];
-      DEBUGL(("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total, sendToNeighbors[i]));
-    }
   }
 
-  // FINAL STAGE
   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
   contribute(cbm);
 }
