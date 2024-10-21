@@ -853,37 +853,41 @@ void Diffusion::LoadBalancingCentroids()
     std::vector<std::pair<double, int>> neighbor_dist_pairs(neighborCount);
     for (int n = 0; n < neighborCount; n++)
     {
-      int neighborId = sendToNeighbors[n];
-      int objDist = map_obj_to_neighbor_dist[obj_local_idx][n];
-      neighbor_dist_pairs[n] = std::make_pair(objDist, neighborId);
+      int globalNeighborId = sendToNeighbors[n];
+      int localNeighborId = n;
+      int objDist = map_obj_to_neighbor_dist[obj_local_idx][localNeighborId];
+      neighbor_dist_pairs[localNeighborId] = std::make_pair(objDist, localNeighborId);
     }
 
     // sort the neighbors based on distance to this object
     std::sort(neighbor_dist_pairs.begin(), neighbor_dist_pairs.end());
 
     // find the first neighbor that can take this object
-    int toNeighbor = -1;
+    int localToSendNeighbor = -1;
     for (int n = 0; n < neighborCount; n++)
     {
-      int n_id = neighbor_dist_pairs[n].second;
-      int n_idx = findNborIdx(n_id);
-      if (toSendLoad[n_idx] > 0.0 && currLoad <= toSendLoad[n_idx] * 1.35)
+      int local_n_id = neighbor_dist_pairs[n].second;
+      if (toSendLoad[local_n_id] > 0.0 && currLoad <= toSendLoad[local_n_id] * 1.35)
       {
-        toNeighbor = n_id;
+        localToSendNeighbor = local_n_id;
         break;
       }
     }
 
-    int toSendId = sendToNeighbors[toNeighbor];
-    toSendLoad[toSendId] -= currLoad;
-    loadNeighbors[toSendId] += currLoad;
+    if (localToSendNeighbor == -1)
+    {
+      continue;
+    }
+
+    int globalNeighborId = sendToNeighbors[localToSendNeighbor];
+    toSendLoad[localToSendNeighbor] -= currLoad;
+    loadNeighbors[localToSendNeighbor] += currLoad;
     my_load_after_transfer -= currLoad;
 
     Diffusion *diff0 = diff_array(0).ckLocal();
-    CkPrintf("Migrating obj %d from node %d to node %d\n", obj_global_idx, thisIndex, toSendId);
-    diff0->map_obid_pe[obj_global_idx] = toSendId;
+    diff0->map_obid_pe[obj_global_idx] = globalNeighborId;
 
-    Diffusion *diffRecv = diff_array(toSendId).ckLocal();
+    Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
     diffRecv->my_load_after_transfer += currLoad;
 
   } // end of while
