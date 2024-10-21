@@ -233,6 +233,10 @@ public:
     fflush(stdout);
     CkExit(0);
   }
+  void printSpreadMeasure(double avg)
+  {
+    CkPrintf("SPREAD: %lf\n", avg);
+  }
 };
 #endif
 
@@ -427,6 +431,7 @@ void Diffusion::finishLB()
   finished = true;
   my_load = my_load_after_transfer;
   //  CkPrintf("\nNode-%d, my load = %lf", thisIndex, my_load_after_transfer);
+
   CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
   contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
 }
@@ -746,7 +751,6 @@ void Diffusion::LoadBalancing()
   }
   //    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);
   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
-
   contribute(cbm); // sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
 
   // contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
@@ -892,6 +896,39 @@ LBRealType Diffusion::computeDistance(std::vector<LBRealType> a, std::vector<LBR
   }
   dist = sqrt(dist);
   return dist;
+}
+
+void Diffusion::spreadMeasure()
+{
+  int n_objs = objects.size();
+  double spread = 0.0;
+  for (int i = 0; i < n_objs; i++)
+  {
+    int objHandle = objects[i].getVertexId();
+    int obj_idx = get_obj_idx(objHandle); // gets global obj index
+
+    if (!obj_on_node(obj_idx))
+    {
+      CmiAbort("ERROR <spreadMeasure>: object %d not on node %d\n", obj_idx, thisIndex);
+    }
+
+    // current object is local
+    std::vector<LBRealType> obj_pos = statsData->objData[obj_idx].position;
+
+    // gain_value is just the distance to the current centroid
+    std::vector<LBRealType> curr_centroid = getCentroid(thisIndex);
+    spread += (double)computeDistance(obj_pos, curr_centroid);
+  }
+
+  spread /= n_objs;
+  CkCallback cbm(CkReductionTarget(Diffusion, printSpreadMeasure), thisProxy);
+  contribute(sizeof(double), &spread, CkReduction::sum_double, cbm);
+}
+
+void Diffusion::printSpreadMeasure(double spread)
+{
+  if (thisIndex == 0)
+    CkPrintf("SPREAD: %lf\n", spread);
 }
 
 #include "Diffusion.def.h"

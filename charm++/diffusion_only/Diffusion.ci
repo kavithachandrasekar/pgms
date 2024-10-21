@@ -30,6 +30,7 @@ module Diffusion
     entry[reductiontarget] void MaxLoad(double val);
     entry[reductiontarget] void AvgLoad(double val);
     entry[reductiontarget] void findNBors(int do_again);
+    entry[reductiontarget] void printSpreadMeasure(double val);
 
     entry[reductiontarget] void pick3DNbors();
     entry[reductiontarget] void finishLB();
@@ -37,6 +38,7 @@ module Diffusion
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);
     entry void AtSync(void);
+    entry void spreadMeasure();
     entry[reductiontarget] void createObjs(void);
     entry[reductiontarget] void createDistNList(void);
     entry void ReceiveLoadInfo(int itr, double load, int node);
@@ -112,6 +114,7 @@ module Diffusion
       serial
       {
         AggregateToSend();
+
         CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
         contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
         CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
