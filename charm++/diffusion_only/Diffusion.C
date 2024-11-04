@@ -41,11 +41,14 @@ using std::vector;
 #ifdef STANDALONE_DIFF
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_Diffusion diff_array;
-BaseLB::LDStats *statsDataG;
+
+GlobalMap::GlobalMap()
+{
+  statsData = new BaseLB::LDStats;
+}
 
 class Main : public CBase_Main
 {
-  BaseLB::LDStats *statsData;
   obj_imb_funcptr obj_imb;
   int numNodes;
   int stats_msg_count;
@@ -80,7 +83,12 @@ public:
     {
       CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", filename);
     }
-    BaseLB::LDStats *statsDatax = new BaseLB::LDStats;
+
+    nodeGroupProxy = CProxy_GlobalMap::ckNew();
+
+    GlobalMap *nodeGroup = nodeGroupProxy.ckLocalBranch();
+    BaseLB::LDStats *statsDatax = nodeGroup->statsData;
+
     statsDatax->objData.reserve(SIZE);
     statsDatax->from_proc.reserve(SIZE);
     statsDatax->to_proc.reserve(SIZE);
@@ -109,23 +117,21 @@ public:
     // file f is closed in the destructor of PUP::fromDisk
     CmiPrintf("ReadStatsMsg from %s completed\n", filename);
 
-    statsData = statsDatax;
     int nmigobj = 0;
 
-    for (i = 0; i < statsData->objData.size(); i++)
+    for (i = 0; i < statsDatax->objData.size(); i++)
     {
-      if (statsData->objData[i].migratable)
+      if (statsDatax->objData[i].migratable)
         nmigobj++;
     }
-    statsData->n_migrateobjs = nmigobj;
+    statsDatax->n_migrateobjs = nmigobj;
 
     // Generate a hash with key object id, value index in objs vector
-    statsData->deleteCommHash();
-    statsData->makeCommHash();
-    numNodes = statsData->procs.size();
+    statsDatax->deleteCommHash();
+    statsDatax->makeCommHash();
+    numNodes = statsDatax->procs.size();
     // statsData->print();
     // create one diffusion obj per "node" = PE
-    statsDataG = statsData;
     thisProxy.init();
   }
   void init()
@@ -146,6 +152,7 @@ public:
     // }
 
     // TODO: setting object mapping on diff_obj0 (should be done on all)
+    BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
     map_obid_pe = std::vector<int>(statsData->objData.size(), 0);
     map_obj_id = std::vector<int>(statsData->objData.size(), 0);
     map_pe_centroid = std::vector<std::vector<LBRealType>>(numNodes, std::vector<LBRealType>(3, 0.0));
@@ -201,20 +208,25 @@ public:
     {
       CkPrintf("Using COMM approach\n");
     }
-    CkPrintf("initializing arra with sizes %d, %d, %d\n", map_obid_pe.size(), map_obj_id.size(), map_pe_centroid.size());
-    diff_array = CProxy_Diffusion::ckNew(numNodes, map_obj_id, map_obid_pe, map_pe_centroid, numNodes);
 
+    GlobalMap *maps = nodeGroupProxy.ckLocalBranch();
+    maps->map_obj_id = map_obj_id;
+    maps->map_obid_pe = map_obid_pe;
+    maps->map_pe_centroid = map_pe_centroid;
+
+    diff_array = CProxy_Diffusion::ckNew(numNodes, map_obj_id, map_obid_pe, map_pe_centroid, numNodes);
     diff_array.AtSync();
   }
 
   void done()
   {
-
+    BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
     for (int obj = 0; obj < statsData->objData.size(); obj++)
     {
       if (!statsData->objData[obj].migratable)
         continue;
-      statsData->from_proc[obj] = map_obid_pe[obj];
+
+      statsData->from_proc[obj] = nodeGroupProxy.ckLocalBranch()->map_obid_pe[obj]; // map_obid_pe[obj];
     }
     const char *filename = "lbdata.dat.out.0";
     FILE *f = fopen(filename, "w");
@@ -238,6 +250,7 @@ public:
     fflush(stdout);
     CkExit(0);
   }
+
   void printSpreadMeasure(double avg)
   {
     CkPrintf("SPREAD: %lf\n", avg);
@@ -257,10 +270,11 @@ Diffusion::Diffusion(int node_count, std::vector<int> obj_id, std::vector<int> o
   edgeCount = 0;
   edge_indices.reserve(100);
 
-  statsData = statsDataG;
   map_obj_id = obj_id;
   map_obid_pe = obid_pe;
   map_pe_centroid = pe_centroid;
+
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
 
   // setting up initial communcation
   for (int edge = 0; edge < statsData->commData.size(); edge++)
@@ -333,6 +347,7 @@ void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load)
 
 void Diffusion::createObjList()
 {
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
   my_load = 0.0;
   int start_node_obj_idx = 0; // this should be taken from map in stencil3d
 
@@ -380,6 +395,7 @@ std::vector<LBRealType> Diffusion::getCentroid(int pe)
 
 int Diffusion::get_obj_idx(int objHandleId)
 {
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
   //  CkPrintf("\nAsking for %d", objHandleId);
   for (int i = 0; i < statsData->objData.size(); i++)
   {
@@ -452,8 +468,16 @@ void Diffusion::finishLB()
   CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
   contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
 }
+
+void Diffusion::updateLoad(double update)
+{
+  my_load_after_transfer += update;
+}
+
 void Diffusion::MaxLoad(double val)
 {
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
+
   if (finished)
     computeCommBytes(statsData, this, 0);
   DEBUGF(("[Iter: %d] Max PE load = %lf\n", itr, val));
@@ -464,6 +488,8 @@ void Diffusion::MaxLoad(double val)
 
 void Diffusion::AvgLoad(double val)
 {
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
+
   done++;
   if (thisIndex == 0)
     DEBUGF(("[%d]Avg Node load = %lf\n", done, val / numNodes));
@@ -543,6 +569,8 @@ void Diffusion::PseudoLoadBalancing()
 
 void Diffusion::LoadBalancing()
 {
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
+
   //  if(thisIndex%4==0)
   { // Overloaded PEs in this dataset
     for (int i = 0; i < neighborCount; i++)
@@ -742,11 +770,17 @@ void Diffusion::LoadBalancing()
       // emig_objs.push_back(std::make_pair(objId, currPE, currLoad));
       //        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
 
-      Diffusion *diff0 = diff_array(0).ckLocal();
-      diff0->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE; //.
+      // update global map
+      GlobalMap *nodeGlobalMaps = nodeGroupProxy.ckLocalBranch();
+      // Diffusion *diff0 = diff_array(0).ckLocal();
+      // diff0->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE; //.
+      nodeGlobalMaps->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
 
-      Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
-      diffRecv->my_load_after_transfer += currLoad;
+      // Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
+      // diffRecv->my_load_after_transfer += currLoad;
+
+      diff_array(receiverNodePE).updateLoad(currLoad);
+
       my_load_after_transfer -= currLoad;
       //        CkPrintf("\nSending load %lf from node-%d(load %lf) to node-%d (load %lf)", currLoad, thisIndex, my_load_after_transfer, receiverNodePE,diffRecv->my_load_after_transfer);
       loadNeighbors[maxi] += currLoad;
@@ -786,6 +820,7 @@ void Diffusion::InitializeObjHeap(int *obj_arr, int n, int *gain_val)
 
 void Diffusion::LoadBalancingCentroids()
 {
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
 
   int n_objs = objects.size(); // objects only includes objects on my node?
 
@@ -893,11 +928,13 @@ void Diffusion::LoadBalancingCentroids()
     loadNeighbors[localToSendNeighbor] += currLoad;
     my_load_after_transfer -= currLoad;
 
-    Diffusion *diff0 = diff_array(0).ckLocal();
-    diff0->map_obid_pe[obj_global_idx] = globalNeighborId;
+    // global updates
+    // diff0->map_obid_pe[obj_global_idx] = globalNeighborId;
+    nodeGroupProxy.ckLocalBranch()->map_obid_pe[obj_global_idx] = globalNeighborId;
 
-    Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
-    diffRecv->my_load_after_transfer += currLoad;
+    // Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
+    // diffRecv->my_load_after_transfer += currLoad;
+    thisProxy[globalNeighborId].updateLoad(currLoad);
   }
 
   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
@@ -917,6 +954,8 @@ LBRealType Diffusion::computeDistance(std::vector<LBRealType> a, std::vector<LBR
 
 void Diffusion::spreadMeasure()
 {
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
+
   int n_objs = objects.size();
   double spread = 0.0;
   for (int i = 0; i < n_objs; i++)

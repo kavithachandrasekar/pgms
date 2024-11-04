@@ -1,8 +1,11 @@
 /* Pick NUM_NEIGHBORS in random */
 /*readonly*/ bool centroid;
+/*readonly*/ CProxy_GlobalMap nodeGroupProxy;
 
 void Diffusion::createCommList()
 {
+  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
+
   pick = 0;
   long ebytes[numNodes];
   std::fill_n(ebytes, numNodes, 0);

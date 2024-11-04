@@ -10,6 +10,7 @@ module Diffusion
 #ifdef STANDALONE_DIFF
   readonly CProxy_Main mainProxy;
   readonly CProxy_Diffusion diff_array;
+  readonly CProxy_GlobalMap nodeGroupProxy;
 
   mainchare Main
   {
@@ -23,6 +24,12 @@ module Diffusion
       entry NodeCache();
     }
   */
+
+  nodegroup GlobalMap
+  {
+    entry GlobalMap();
+  };
+
   array[1D] Diffusion
   {
     entry Diffusion(int num_nodes, std::vector<int> map_obj_id, std::vector<int> map_obid_pe, std::vector<std::vector<LBRealType>> map_pe_centroid);
@@ -31,6 +38,7 @@ module Diffusion
     entry[reductiontarget] void AvgLoad(double val);
     entry[reductiontarget] void findNBors(int do_again);
     entry[reductiontarget] void printSpreadMeasure(double val);
+    entry void updateLoad(double val);
 
     entry[reductiontarget] void pick3DNbors();
     entry[reductiontarget] void finishLB();

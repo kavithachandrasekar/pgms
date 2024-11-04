@@ -12,6 +12,18 @@
 #include "Diffusion.decl.h"
 
 typedef void (*callback_function)(void *);
+
+class GlobalMap : public CBase_GlobalMap
+{
+public:
+    std::vector<int> map_obj_id;
+    std::vector<int> map_obid_pe;
+    std::vector<std::vector<LBRealType>> map_pe_centroid;
+    BaseLB::LDStats *statsData;
+
+    GlobalMap();
+};
+
 class Diffusion : public CBase_Diffusion
 {
     Diffusion_SDAG_CODE public : Diffusion(int num_nodes, std::vector<int> map_obj_id, std::vector<int> map_obid_pe, std::vector<std::vector<LBRealType>> map_pe_centroid);
@@ -25,6 +37,7 @@ class Diffusion : public CBase_Diffusion
 
     void printSpreadMeasure(double val);
     void spreadMeasure();
+    void updateLoad(double val);
     void finishLB();
 
     void passPtrs(double *loadNbors, double *toSendLd,
