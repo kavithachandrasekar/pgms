@@ -14,7 +14,7 @@
 typedef void (*callback_function)(void *);
 class Diffusion : public CBase_Diffusion
 {
-    Diffusion_SDAG_CODE public : Diffusion(int num_nodes);
+    Diffusion_SDAG_CODE public : Diffusion(int num_nodes, std::vector<int> map_obj_id, std::vector<int> map_obid_pe, std::vector<std::vector<LBRealType>> map_pe_centroid);
     ~Diffusion();
     void AtSync(void);
     void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
@@ -22,6 +22,9 @@ class Diffusion : public CBase_Diffusion
     void LoadReceived(int objId, int fromPE);
     void MaxLoad(double val);
     void AvgLoad(double val);
+
+    void printSpreadMeasure(double val);
+    void spreadMeasure();
     void finishLB();
 
     void passPtrs(double *loadNbors, double *toSendLd,
@@ -50,6 +53,7 @@ class Diffusion : public CBase_Diffusion
     void LoadBalancingCentroids();
     int get_obj_idx(int objHandleId);
     std::vector<LBRealType> getCentroid(int pe);
+
     std::vector<int> map_obj_id;
     std::vector<int> map_obid_pe;
     std::vector<std::vector<LBRealType>> map_pe_centroid;

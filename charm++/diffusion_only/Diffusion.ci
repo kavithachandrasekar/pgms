@@ -25,7 +25,7 @@ module Diffusion
   */
   array[1D] Diffusion
   {
-    entry Diffusion(int num_nodes);
+    entry Diffusion(int num_nodes, std::vector<int> map_obj_id, std::vector<int> map_obid_pe, std::vector<std::vector<LBRealType>> map_pe_centroid);
     entry[reductiontarget] void startDiffusion();
     entry[reductiontarget] void MaxLoad(double val);
     entry[reductiontarget] void AvgLoad(double val);

@@ -41,6 +41,7 @@ using std::vector;
 #ifdef STANDALONE_DIFF
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_Diffusion diff_array;
+BaseLB::LDStats *statsDataG;
 
 class Main : public CBase_Main
 {
@@ -48,6 +49,10 @@ class Main : public CBase_Main
   obj_imb_funcptr obj_imb;
   int numNodes;
   int stats_msg_count;
+
+  std::vector<int> map_obid_pe;
+  std::vector<int> map_obj_id;
+  std::vector<std::vector<LBRealType>> map_pe_centroid;
 
 public:
   Main(CkArgMsg *m)
@@ -59,6 +64,8 @@ public:
       CkExit();
     }
     int fn_type = atoi(m->argv[1]);
+
+    // injecting load imbalance
     if (fn_type == 1)
       obj_imb = (obj_imb_funcptr)load_imb_by_pe;
     else if (fn_type == 2)
@@ -118,28 +125,37 @@ public:
     numNodes = statsData->procs.size();
     // statsData->print();
     // create one diffusion obj per "node" = PE
-    diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
+    statsDataG = statsData;
+    thisProxy.init();
   }
   void init()
   {
     // initiating algorithm, iterating over "nodes"
-    for (int i = 0; i < numNodes; i++)
-    {
-      Diffusion *diff_obj = diff_array(i).ckLocal();
 
-      if (diff_obj == NULL)
-      {
-        CkPrintf("ERROR: diff obj is not local\n");
-        CkExit();
-      }
-      diff_obj->statsData = statsData; // all diffusion objects get the same statsData
-    }
+    // TODO: setting statsData for all diffusion objects (should be done in Diffusion)
+    // for (int i = 0; i < numNodes; i++)
+    // {
+    //   Diffusion *diff_obj = diff_array(i).ckLocal();
 
-    Diffusion *diff_obj0 = diff_array(0).ckLocal();
+    //   if (diff_obj == NULL)
+    //   {
+    //     CkPrintf("ERROR: diff obj is not local\n");
+    //     CkExit();
+    //   }
+    //   diff_obj->statsData = statsData; // all diffusion objects get the same statsData
+    // }
 
+    // TODO: setting object mapping on diff_obj0 (should be done on all)
+    map_obid_pe = std::vector<int>(statsData->objData.size(), 0);
+    map_obj_id = std::vector<int>(statsData->objData.size(), 0);
+    map_pe_centroid = std::vector<std::vector<LBRealType>>(numNodes, std::vector<LBRealType>(3, 0.0));
+
+    // injecting load imbalance
     obj_imb(statsData);
-    diff_obj0->map_obj_id.reserve(statsData->objData.size());
-    diff_obj0->map_obid_pe.reserve(statsData->objData.size());
+
+    // set up initial maps
+    map_obj_id.reserve(statsData->objData.size());
+    map_obid_pe.reserve(statsData->objData.size());
 
     // centroid relevant variables
     int positionDim = statsData->objData[0].position.size();
@@ -162,8 +178,9 @@ public:
       if (!oData.migratable)
         continue;
       // CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
-      diff_obj0->map_obj_id[obj] = oData.objID();
-      diff_obj0->map_obid_pe[obj] = statsData->from_proc[obj];
+
+      map_obj_id[obj] = oData.objID();
+      map_obid_pe[obj] = statsData->from_proc[obj];
     }
 
     if (centroid)
@@ -178,38 +195,26 @@ public:
         }
       }
 
-      diff_obj0->map_pe_centroid = pe_centroids;
+      map_pe_centroid = pe_centroids;
     }
     else
     {
       CkPrintf("Using COMM approach\n");
     }
-    for (int edge = 0; edge < statsData->commData.size(); edge++)
-    {
-      LDCommData &commData = statsData->commData[edge];
-      if ((!commData.from_proc()) && (commData.recv_type() == LD_OBJ_MSG))
-      {
-        LDObjKey from = commData.sender;
-
-        int fromNode = diff_obj0->obj_node_map(diff_obj0->get_obj_idx(from.objID()));
-        Diffusion *diff_obj = diff_array(fromNode).ckLocal();
-        diff_obj->edgeCount++;
-        diff_obj->edge_indices.push_back(edge);
-        // CkPrintf("\nEdge %d from %d to %d", edge, fromNode, diff_obj0->obj_node_map(diff_obj0->get_obj_idx(commData.receiver.get_destObj().objID())));
-      }
-    }
+    CkPrintf("initializing arra with sizes %d, %d, %d\n", map_obid_pe.size(), map_obj_id.size(), map_pe_centroid.size());
+    diff_array = CProxy_Diffusion::ckNew(numNodes, map_obj_id, map_obid_pe, map_pe_centroid, numNodes);
 
     diff_array.AtSync();
   }
 
   void done()
   {
-    Diffusion *diff_obj0 = diff_array(0).ckLocal();
+
     for (int obj = 0; obj < statsData->objData.size(); obj++)
     {
       if (!statsData->objData[obj].migratable)
         continue;
-      statsData->from_proc[obj] = diff_obj0->map_obid_pe[obj];
+      statsData->from_proc[obj] = map_obid_pe[obj];
     }
     const char *filename = "lbdata.dat.out.0";
     FILE *f = fopen(filename, "w");
@@ -240,7 +245,7 @@ public:
 };
 #endif
 
-Diffusion::Diffusion(int node_count)
+Diffusion::Diffusion(int node_count, std::vector<int> obj_id, std::vector<int> obid_pe, std::vector<std::vector<LBRealType>> pe_centroid)
 {
   setMigratable(false);
   done = -1;
@@ -252,7 +257,23 @@ Diffusion::Diffusion(int node_count)
   edgeCount = 0;
   edge_indices.reserve(100);
 
-  contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
+  statsData = statsDataG;
+  map_obj_id = obj_id;
+  map_obid_pe = obid_pe;
+  map_pe_centroid = pe_centroid;
+
+  // setting up initial communcation
+  for (int edge = 0; edge < statsData->commData.size(); edge++)
+  {
+    LDCommData &commData = statsData->commData[edge];
+    if ((!commData.from_proc()) && (commData.recv_type() == LD_OBJ_MSG))
+    {
+      LDObjKey from = commData.sender;
+      int fromNode = obj_node_map(get_obj_idx(from.objID()));
+      edgeCount++;
+      edge_indices.push_back(edge);
+    }
+  }
 }
 
 Diffusion::~Diffusion() {}
@@ -346,39 +367,35 @@ void Diffusion::createObjList()
 
 bool Diffusion::obj_on_node(int objId)
 {
-  Diffusion *diff0 = diff_array(0).ckLocal();
-  if (thisIndex == diff0->map_obid_pe[objId])
+
+  if (thisIndex == map_obid_pe[objId])
     return true;
   return false;
 }
 
 std::vector<LBRealType> Diffusion::getCentroid(int pe)
 {
-  Diffusion *diff0 = diff_array(0).ckLocal();
-  return diff0->map_pe_centroid[pe];
+  return map_pe_centroid[pe];
 }
 
 int Diffusion::get_obj_idx(int objHandleId)
 {
   //  CkPrintf("\nAsking for %d", objHandleId);
-  Diffusion *diff0 = diff_array(0).ckLocal();
   for (int i = 0; i < statsData->objData.size(); i++)
   {
     //    CkPrintf("\nPrinting[%d] = %d", i, diff0->map_obj_id[i]);
-    if (diff0->map_obj_id[i] == objHandleId)
+    if (map_obj_id[i] == objHandleId)
     {
-      //      CkPrintf("\nReturning i=%d",i);
       return i;
     }
   }
-  CkPrintf("Not found\n");
   return -1;
 }
 
 int Diffusion::obj_node_map(int objId)
 {
-  Diffusion *diff0 = diff_array(0).ckLocal();
-  return diff0->map_obid_pe[objId];
+
+  return map_obid_pe[objId];
 }
 
 void Diffusion::startDiffusion()
@@ -726,7 +743,7 @@ void Diffusion::LoadBalancing()
       //        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
 
       Diffusion *diff0 = diff_array(0).ckLocal();
-      diff0->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
+      diff0->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE; //.
 
       Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
       diffRecv->my_load_after_transfer += currLoad;
