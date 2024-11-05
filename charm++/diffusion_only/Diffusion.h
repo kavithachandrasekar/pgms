@@ -35,8 +35,8 @@ class Diffusion : public CBase_Diffusion
     void MaxLoad(double val);
     void AvgLoad(double val);
 
-    void printSpreadMeasure(double val);
     void spreadMeasure();
+    void addObject(int id);
     void updateLoad(double val);
     void finishLB();
 
@@ -99,6 +99,8 @@ private:
     double *toReceiveLoad;
 
     double avgLoadNeighbor;
+
+    GlobalMap *nodeGroup;
 
     // heap
     int *obj_arr;

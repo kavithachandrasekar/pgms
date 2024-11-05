@@ -4,7 +4,7 @@
 
 void Diffusion::createCommList()
 {
-  BaseLB::LDStats *statsData = nodeGroupProxy.ckLocalBranch()->statsData;
+  BaseLB::LDStats *statsData = nodeGroup->statsData;
 
   pick = 0;
   long ebytes[numNodes];

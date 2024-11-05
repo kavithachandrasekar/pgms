@@ -17,6 +17,7 @@ module Diffusion
     entry Main(CkArgMsg * m);
     entry[reductiontarget] void init();
     entry[reductiontarget] void done();
+    entry[reductiontarget] void printSpreadMeasure(double val);
   };
 #endif
   /*
@@ -37,8 +38,8 @@ module Diffusion
     entry[reductiontarget] void MaxLoad(double val);
     entry[reductiontarget] void AvgLoad(double val);
     entry[reductiontarget] void findNBors(int do_again);
-    entry[reductiontarget] void printSpreadMeasure(double val);
     entry void updateLoad(double val);
+    entry void addObject(int obid);
 
     entry[reductiontarget] void pick3DNbors();
     entry[reductiontarget] void finishLB();
@@ -125,7 +126,7 @@ module Diffusion
 
         CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
         contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
-        CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
+        CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy); // LB happens on second call to AvgLoad here
         contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
       }
     }
