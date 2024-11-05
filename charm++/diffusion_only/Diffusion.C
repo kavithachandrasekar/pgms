@@ -583,8 +583,6 @@ void Diffusion::PseudoLoadBalancing()
   }
 }
 
-#include "omp.h"
-
 void Diffusion::LoadBalancing()
 {
   BaseLB::LDStats *statsData = nodeGroup->statsData;
