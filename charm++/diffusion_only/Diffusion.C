@@ -41,6 +41,7 @@ using std::vector;
 #ifdef STANDALONE_DIFF
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_Diffusion diff_array;
+/*readonly*/ CProxy_GlobalMap nodeGroupProxy;
 
 GlobalMap::GlobalMap()
 {
@@ -215,6 +216,7 @@ public:
     }
 
     GlobalMap *maps = nodeGroup;
+
     maps->map_obj_id = map_obj_id;
     maps->map_obid_pe = map_obid_pe;
     maps->map_pe_centroid = map_pe_centroid;
@@ -286,7 +288,7 @@ Diffusion::Diffusion(int node_count, std::vector<int> obj_id, std::vector<int> o
   map_pe_centroid = pe_centroid;
 
   nodeGroup = nodeGroupProxy.ckLocalBranch();
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
+  statsData = nodeGroup->statsData;
 
   // setting up initial communcation
   for (int edge = 0; edge < statsData->commData.size(); edge++)
@@ -325,13 +327,9 @@ void Diffusion::createObjs()
   sendToNeighbors.clear();
 
   int do_again = 1;
-#if 1
+
   CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
-#else
-  CkCallback cb(CkReductionTarget(Diffusion, pickCommNeighbors), thisProxy);
-  contribute(cb);
-#endif
 }
 
 void Diffusion::passPtrs(double *loadNbors, double *toSendLd,
@@ -361,7 +359,6 @@ void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load)
 
 void Diffusion::createObjList()
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
   my_load = 0.0;
   int start_node_obj_idx = 0; // this should be taken from map in stencil3d
 
@@ -409,7 +406,6 @@ std::vector<LBRealType> Diffusion::getCentroid(int pe)
 
 int Diffusion::get_obj_idx(int objHandleId)
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
   //  CkPrintf("\nAsking for %d", objHandleId);
   for (int i = 0; i < statsData->objData.size(); i++)
   {
@@ -490,7 +486,6 @@ void Diffusion::updateLoad(double update)
 
 void Diffusion::MaxLoad(double val)
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
 
   if (finished)
   {
@@ -506,7 +501,6 @@ void Diffusion::MaxLoad(double val)
 
 void Diffusion::AvgLoad(double val)
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
 
   done++;
   if (thisIndex == 0)
@@ -585,22 +579,6 @@ void Diffusion::PseudoLoadBalancing()
 
 void Diffusion::LoadBalancing()
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
-
-  //  if(thisIndex%4==0)
-  { // Overloaded PEs in this dataset
-    for (int i = 0; i < neighborCount; i++)
-    {
-      if (toSendLoad[i] > 0.0)
-      {
-        // CkPrintf("\nNode-%d to send load %lf (%d objects) to node-%d", thisIndex, toSendLoad[i], (int)(toSendLoad[i]/0.1), sendToNeighbors[i]);
-      }
-    }
-  }
-  int n_objs = objects.size();
-  //  if(thisIndex == 0)
-  DEBUGL(("[SimNode#%d] GRD: Load Balancing w objects size = %d \n", thisIndex, n_objs));
-  fflush(stdout);
   //  Iterate over the comm data and for each object, store its comm bytes
   //  to other neighbor nodes and own node.
 
@@ -609,77 +587,58 @@ void Diffusion::LoadBalancing()
   // we also maintain comm within this node and comm bytes outside
   //(of this node and neighboring nodes)
 
-  // objectComms.reserve(n_objs);
-  objectComms.resize(n_objs);
-
-  //  if(gain_val != NULL)
-  //      delete[] gain_val;
+  int n_objs = objects.size();
   gain_val = new int[n_objs];
-  memset(gain_val, -1, n_objs);
+  std::vector<std::vector<int>> objectComms(n_objs, std::vector<int>(NUM_NEIGHBORS + 2, 0));
 
-  for (int i = 0; i < n_objs; i++)
+  for (int edge = 0; edge < edge_indices.size(); edge++)
   {
-    objectComms[i].resize(NUM_NEIGHBORS + 2);
-    for (int j = 0; j < NUM_NEIGHBORS + 2; j++)
-      objectComms[i][j] = 0;
-  }
 
-  int obj = 0;
-#if 1
-  // if(thisIndex==0)
-  {
-    for (int edge = 0; edge < edge_indices.size() /*statsData->commData.size()*/; edge++)
+    LDCommData &commData = statsData->commData[edge_indices[edge]];
+    if ((!commData.from_proc()) && (commData.recv_type() == LD_OBJ_MSG))
     {
+      LDObjKey from = commData.sender;
+      LDObjKey to = commData.receiver.get_destObj();
 
-      LDCommData &commData = statsData->commData[edge_indices[edge]];
-      if ((!commData.from_proc()) && (commData.recv_type() == LD_OBJ_MSG))
+      int fromNode = thisIndex; // Node = chare here so using thisIndex
+      int toNode = obj_node_map(get_obj_idx(to.objID()));
+
+      // store internal bytes in the last index pos ? -q
+      if (fromNode == toNode)
       {
-        LDObjKey from = commData.sender;
+        // internal comm
+        int nborIdx = SELF_IDX;
+        int fromObj = statsData->getHash(from);
+        int toObj = statsData->getHash(to);
 
-        LDObjKey to = commData.receiver.get_destObj();
+        if (fromObj != -1 && fromObj < n_objs)
+          objectComms[fromObj][nborIdx] += commData.bytes;
 
-        int fromNode = thisIndex; // Node = chare here so using thisIndex
-
-        int toNode = obj_node_map(get_obj_idx(to.objID()));
-        //      CkPrintf("\n[Edge] fromNode = %d, toNode = %d", fromNode, toNode);
-
-        // store internal bytes in the last index pos ? -q
-        if (fromNode == toNode)
-        {
-          int nborIdx = SELF_IDX;
-          int fromObj = statsData->getHash(from);
-          int toObj = statsData->getHash(to);
-          // DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, statsData->n_objs));
-          if (fromObj != -1 && fromObj < n_objs)
-            objectComms[fromObj][nborIdx] += commData.bytes;
-          // lastKnown PE value can be wrong.
-          if (toObj != -1 && toObj < n_objs)
-            objectComms[toObj][nborIdx] += commData.bytes;
-        }
-        else
-        { // External communication
-          int nborIdx = findNborIdx(toNode);
-          if (nborIdx == -1)
-            nborIdx = EXT_IDX; // Store in last index if it is external bytes going to non-immediate neighbors
-          int fromObj = statsData->getHash(from);
-          // CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
-          if (fromObj != -1 && fromObj < n_objs)
-            objectComms[fromObj][nborIdx] += commData.bytes;
-          obj++;
-        }
+        // lastKnown PE value can be wrong.
+        if (toObj != -1 && toObj < n_objs)
+          objectComms[toObj][nborIdx] += commData.bytes;
       }
-    } // end for
-  }
-#endif
+      else
+      { // External communication
+        int nborIdx = findNborIdx(toNode);
+        if (nborIdx == -1)
+          nborIdx = EXT_IDX; // Store in last index if it is external bytes going to non-immediate neighbors
+        int fromObj = statsData->getHash(from);
+        // CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
+        if (fromObj != -1 && fromObj < n_objs)
+          objectComms[fromObj][nborIdx] += commData.bytes;
+      }
+    }
+  } // end for
 
   // calculate the gain value, initialize the heap.
   double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
 
-  if (thisIndex == 0)
-    DEBUGL(("\nIterating through toSendLoad of size %lu", neighborCount));
+  // if (thisIndex == 0)
+  //   DEBUGL(("\nIterating through toSendLoad of size %lu", neighborCount));
 
-  if (n_objs != objectComms.size())
-    DEBUGL(("\nError %d!=%d", n_objs, objectComms.size()));
+  // if (n_objs != objectComms.size())
+  //   DEBUGL(("\nError %d!=%d", n_objs, objectComms.size()));
 
   obj_arr = new int[n_objs];
 
@@ -690,8 +649,8 @@ void Diffusion::LoadBalancing()
     // if(i > objectComms.size()-1) continue;
     //    vector<int> comm_w_nbors = objectComms[i];
     // compute the sume of bytes of all comms for this obj
-    for (int j = 0; j < objectComms[i].size(); j++)
-      sum_bytes += objectComms[i][j];
+
+    sum_bytes = std::accumulate(objectComms[i].begin(), objectComms[i].end(), 0);
 
     // This gives higher gain value to objects that have more within node communication
     gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
@@ -699,80 +658,84 @@ void Diffusion::LoadBalancing()
 
   // T1: create a heap based on gain values, and its position also.
 
-  obj_heap.resize(n_objs);
-  heap_pos.resize(n_objs);
   //  objs.resize(n_objs);
 
   // Creating a minheap of objects based on gain value
-  InitializeObjHeap(obj_arr, n_objs, gain_val);
+  // InitializeObjHeap(obj_arr, n_objs, gain_val); // TODO: replace
+
+  // For sorting: make pairs of object id and gain value
+  std::vector<std::pair<double, int>> obj_gain_pairs(n_objs);
+  for (int i = 0; i < n_objs; i++)
+  {
+    obj_gain_pairs[i] = std::make_pair(gain_val[i], i);
+  }
+
+  // SORT: sort the objects based on gain value (in increasing order)
+  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
 
   // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
   int v_id;
   double totalSent = 0;
   int counter = 0;
-
-  //  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
-
   int migrated_obj_count = 0;
   int n_count = 0;
-#if 1
+
   while (my_load_after_transfer > 0.0)
   {
-    DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
-    // counter++;
-    // pop the object id with the least gain (i.e least internal comm compared to ext comm)
-
-    //    v_id = counter++;
-    v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
-
-    /*If the heap becomes empty*/
-    if (v_id == -1)
-    { // objects.size()){//v_id==-1) {
-      DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
+    if (obj_gain_pairs.empty())
+    {
       break;
     }
-    int objHandle = objects[v_id].getVertexId();
-    if (!obj_on_node(get_obj_idx(objHandle)))
-      continue;
+    // v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
+    //  get item with highest gain (local id in v_id)
+    auto front = obj_gain_pairs.front();
+    obj_gain_pairs.erase(obj_gain_pairs.begin());
 
-    //    CkPrintf("\n On SimNode-%d, popped v_id = %d (handle%d)", thisIndex, v_id, objHandle);
+    v_id = front.second;
+    int obj_gain = front.first;
+
+    /*If the heap becomes empty*/
+    // if (v_id == -1)
+    // { // objects.size()){//v_id==-1) {
+    //   DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
+    //   break;
+    // }
+
+    int objHandle = objects[v_id].getVertexId();
+    int obj_global_idx = get_obj_idx(objHandle);
+    if (map_obid_pe[obj_global_idx] != thisIndex)
+      CkAbort("Error: Object not on this node %d: v_id = %d, node = %d, global_idx = %d\n", thisIndex, v_id, nodeGroup->map_obid_pe[obj_global_idx], obj_global_idx);
+
+    if (!objects[v_id].isMigratable())
+      CkAbort("Object in objects list must be migratable: local obj %d on pe %d\n", v_id, thisIndex);
 
     double currLoad = objects[v_id].getVertexLoad();
-    if (!objects[v_id].isMigratable())
-    {
-      // CkPrintf("not migratable \n");
-      continue;
-    }
-    DEBUGL(("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad));
+
+    // DEBUGL(("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad));
     vector<int> comm = objectComms[v_id];
     int maxComm = 0;
-    int maxi = -1;
+    int maxi = -1; // index of neighbor to send to
+
+    // sort neighbors based on toSendLoad
     vector<int> V(neighborCount);
     std::iota(V.begin(), V.end(), 0); // Initializing
     sort(V.begin(), V.end(), [&](int i, int j)
          { return toSendLoad[i] > toSendLoad[j]; });
-    // TODO: Get the object vs communication cost ratio and work accordingly.
+
+    // TODO: Get the object vs communication cost ratio and work accordingly. (?)
     for (int i = 0; i < neighborCount; i++)
     {
       int l = V[i];
       // TODO: if not underloaded continue
       if (toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l] * 1.35)
-      { //+threshold) {
-//          maxi = l;break;
-#if 1
+      {
         if (l != SELF_IDX && (maxi == -1 || maxComm < comm[l]))
         {
           maxi = l;
           maxComm = comm[l];
         }
-#endif
       }
-      //        l = (l+1)%neighborCount;
     }
-    //      n_count = (n_count+1)%neighborCount;
-
-    if (maxi != -1)
-      DEBUGL(("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi, sendToNeighbors[maxi], currLoad, toSendLoad[maxi]));
 
     if (maxi != -1)
     {
@@ -782,15 +745,9 @@ void Diffusion::LoadBalancing()
       totalSent += currLoad;
 
       int receiverNodePE = node;
-      //        thisProxy[receiverNodePE].informOfArrivingObj(objId, currPE, currLoad); //Inform the rank-0 on receiving node
-      // emig_objs.push_back(std::make_pair(objId, currPE, currLoad));
-      //        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
 
       // update global map
-      GlobalMap *nodeGlobalMaps = nodeGroup;
-      // Diffusion *diff0 = diff_array(0).ckLocal();
-      // diff0->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE; //.
-      nodeGlobalMaps->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
+      nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
 
       // Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
       // diffRecv->my_load_after_transfer += currLoad;
@@ -808,7 +765,7 @@ void Diffusion::LoadBalancing()
       DEBUGL(("[%d] maxi is negative currLoad %f \n", CkMyPe(), currLoad));
     }
   } // end of while
-#endif
+
   for (int i = 0; i < neighborCount; i++)
   {
     double to_send_total = 0.0;
@@ -838,8 +795,6 @@ void Diffusion::InitializeObjHeap(int *obj_arr, int n, int *gain_val)
 
 void Diffusion::LoadBalancingCentroids()
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
-
   int n_objs = objects.size(); // objects only includes objects on my node?
 
   // For each object, store its distance to current centroid (as gain val)
@@ -855,10 +810,8 @@ void Diffusion::LoadBalancingCentroids()
     int objHandle = objects[i].getVertexId();
     int obj_idx = get_obj_idx(objHandle); // gets global obj index
     obj_local_to_global[i] = obj_idx;
-    if (!obj_on_node(obj_idx))
-    {
+    if (map_obid_pe[obj_idx] != thisIndex)
       CmiAbort("ERROR: object %d not on node %d\n", obj_idx, thisIndex);
-    }
 
     // object load is just wall time
     map_obj_to_load[i] = statsData->objData[obj_idx].wallTime;
@@ -904,7 +857,7 @@ void Diffusion::LoadBalancingCentroids()
 
     int obj_global_idx = obj_local_to_global[obj_local_idx];
 
-    if (!obj_on_node(obj_global_idx))
+    if (map_obid_pe[obj_global_idx] != thisIndex)
       CkAbort("ERROR: Object %d not on node %d\n", obj_global_idx, thisIndex);
 
     if (!statsData->objData[obj_global_idx].migratable)
@@ -965,7 +918,6 @@ void Diffusion::LoadBalancingCentroids()
 
 void Diffusion::addObject(int obj_global_idx)
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
   int objHandle = statsData->objData[obj_global_idx].handle.objID();
   double currLoad = statsData->objData[obj_global_idx].wallTime;
   objects.push_back(CkVertex(objHandle, currLoad, statsData->objData[obj_global_idx].migratable, thisIndex));
@@ -984,7 +936,6 @@ LBRealType Diffusion::computeDistance(std::vector<LBRealType> a, std::vector<LBR
 
 void Diffusion::spreadMeasure()
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
   int n_objs = objects.size();
   double spread = 0.0;
 

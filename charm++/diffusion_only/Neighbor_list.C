@@ -1,17 +1,17 @@
 /* Pick NUM_NEIGHBORS in random */
 /*readonly*/ bool centroid;
-/*readonly*/ CProxy_GlobalMap nodeGroupProxy;
 
 void Diffusion::createCommList()
 {
-  BaseLB::LDStats *statsData = nodeGroup->statsData;
-
   pick = 0;
+
   long ebytes[numNodes];
   std::fill_n(ebytes, numNodes, 0);
+
   nbors = new int[NUM_NEIGHBORS + numNodes];
   for (int i = 0; i < numNodes; i++)
     nbors[i] = -1;
+
   neighborCount = sendToNeighbors.size(); // neighborCount = NUM_NEIGHBORS/2;
   for (int edge = 0; edge < edge_indices.size() /*statsData->commData.size()*/; edge++)
   {
@@ -23,8 +23,10 @@ void Diffusion::createCommList()
 
       int fromobj = get_obj_idx(from.objID());
       int toobj = get_obj_idx(to.objID());
+
       if (fromobj == -1 || toobj == -1)
         continue;
+
       int fromNode = obj_node_map(fromobj);
       if (fromNode != thisIndex)
         continue;
