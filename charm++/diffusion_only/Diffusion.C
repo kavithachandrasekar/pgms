@@ -76,9 +76,24 @@ public:
 
     // injecting load imbalance
     if (fn_type == 1)
+      // for 1/3 PEs, every object on that PE has load set to 3.5
+      // on all other PEs, every object has load set to 1.0
+      // TODO: what was the original load? its just trashed?
       obj_imb = (obj_imb_funcptr)load_imb_by_pe;
     else if (fn_type == 2)
+      //  randomly multiply object load by 0.8 or 1.2 (50% chance) for all objects
       obj_imb = (obj_imb_funcptr)load_imb_by_history;
+    else if (fn_type = 3)
+      // randomly inject load on 1 PE
+      obj_imb = (obj_imb_funcptr)load_imb_rand_inject;
+    else if (fn_type = 4)
+      // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
+      obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
+    else
+    {
+      CkPrintf("Invalid load imbalance function (ARG1 : {1,2})\n");
+      CkExit();
+    }
 
     centroid = atoi(m->argv[3]) == 2;
 
@@ -567,7 +582,7 @@ void Diffusion::PseudoLoadBalancing()
       DEBUGL2(("[Node-%d](my load = %lf-%lf) iteration %d thisIterToSend %f (total send %lf)  avgLoadNeighbor %f loadNeighbors[%d] %f to node %d\n",
                thisIndex, my_load, thisIterToSend[i], itr, thisIterToSend[i], toSendLoad[i], avgLoadNeighbor, i, loadNeighbors[i], sendToNeighbors[i]));
       if (my_load - thisIterToSend[i] < 0)
-        CkAbort("Get out");
+        CkAbort("Error: my_load (%f) - thisIterToSend[i] (%f) < 0\n", my_load, thisIterToSend[i]);
       my_load -= thisIterToSend[i];
     }
     if (thisIterToSend[i] < 0.0)

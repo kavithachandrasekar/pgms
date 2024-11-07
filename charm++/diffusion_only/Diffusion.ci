@@ -15,9 +15,9 @@ module Diffusion
   mainchare Main
   {
     entry Main(CkArgMsg * m);
-    entry[reductiontarget] void init();
-    entry[reductiontarget] void done();
-    entry[reductiontarget] void printSpreadMeasure(double val);
+    entry[reductiontarget, expedited] void init();
+    entry[reductiontarget, expedited] void done();
+    entry[reductiontarget, expedited] void printSpreadMeasure(double val);
   };
 #endif
   /*
@@ -38,20 +38,20 @@ module Diffusion
     entry[reductiontarget] void MaxLoad(double val);
     entry[reductiontarget] void AvgLoad(double val);
     entry[reductiontarget] void findNBors(int do_again);
-    entry void updateLoad(double val);
-    entry void addObject(int obid);
+    entry[expedited] void updateLoad(double val);
+    entry[expedited] void addObject(int obid);
 
     entry[reductiontarget] void pick3DNbors();
     entry[reductiontarget] void finishLB();
-    entry void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
-    entry void proposeNbor(int nborId);
-    entry void okayNbor(int agree, int nborId);
-    entry void AtSync(void);
-    entry void spreadMeasure();
+    entry[expedited] void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
+    entry[expedited] void proposeNbor(int nborId);
+    entry[expedited] void okayNbor(int agree, int nborId);
+    entry[expedited] void AtSync(void);
+    entry[expedited] void spreadMeasure();
     entry[reductiontarget] void createObjs(void);
     entry[reductiontarget] void createDistNList(void);
-    entry void ReceiveLoadInfo(int itr, double load, int node);
-    entry void PseudoLoad(int itr, double load, int node);
+    entry[expedited] void ReceiveLoadInfo(int itr, double load, int node);
+    entry[expedited] void PseudoLoad(int itr, double load, int node);
     entry[reductiontarget] void LoadBalancing();
     entry[reductiontarget] void LoadBalancingCentroids();
     //    entry void collectStats(int nodeId, long internalBytes_in, long externalBytes_in);

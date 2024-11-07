@@ -1,3 +1,5 @@
+#include <random>
+
 typedef void (*obj_imb_funcptr)(BaseLB::LDStats *);
 
 static void load_imb_by_pe(BaseLB::LDStats *statsData)
@@ -36,6 +38,89 @@ static void load_imb_by_history(BaseLB::LDStats *statsData)
       statsData->objData[obj].wallTime *= 0.8;
     else
       statsData->objData[obj].wallTime *= 1.2;
+  }
+}
+
+static void load_imb_rand_inject(BaseLB::LDStats *statsData, double factor = 5)
+{
+  int nprocs = statsData->nprocs();
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> dis(0, nprocs - 1);
+
+  int rand_pe = dis(gen);
+  CkPrintf("Randomly injecting load on PE %d\n", rand_pe);
+
+  for (int obj = 0; obj < statsData->objData.size(); obj++)
+  {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable)
+    {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+
+    if (pe == rand_pe)
+    {
+      statsData->objData[obj].wallTime *= factor;
+    }
+  }
+}
+
+static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
+{
+  int nprocs = statsData->nprocs();
+  std::vector<int> scale(nprocs, 0);
+
+  for (int obj = 0; obj < statsData->objData.size(); obj++)
+  {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable)
+    {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+
+    double load = statsData->objData[obj].wallTime * scale[pe];
+    statsData->objData[obj].wallTime = load;
+  }
+}
+
+static void load_imb_rand_pair(BaseLB::LDStats *statsData, int factor = 5)
+{
+  int nprocs = statsData->nprocs();
+
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> dis(0, nprocs - 1);
+
+  int rand_pe1 = dis(gen); // overloading
+  int rand_pe2 = dis(gen); // underloading
+
+  while (rand_pe1 == rand_pe2)
+    rand_pe2 = dis(gen);
+
+  CkPrintf("Randomly moving load from %d to %d\n", rand_pe1, rand_pe2);
+
+  for (int obj = 0; obj < statsData->objData.size(); obj++)
+  {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable)
+    {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+
+    if (pe == rand_pe1)
+      statsData->objData[obj].wallTime = statsData->objData[obj].wallTime * factor;
+    else if (pe == rand_pe2)
+      statsData->objData[obj].wallTime = statsData->objData[obj].wallTime / factor;
   }
 }
 
