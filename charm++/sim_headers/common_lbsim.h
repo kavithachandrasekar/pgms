@@ -23,6 +23,8 @@ static void load_imb_by_pe(BaseLB::LDStats *statsData)
 
 static void load_imb_by_history(BaseLB::LDStats *statsData)
 {
+  CkPrintf("<LOAD IMB> All obj randomly increase or decrease by %20 \n");
+
   for (int obj = 0; obj < statsData->objData.size(); obj++)
   {
     LDObjData &oData = statsData->objData[obj];
@@ -49,7 +51,7 @@ static void load_imb_rand_inject(BaseLB::LDStats *statsData, double factor = 5)
   std::uniform_int_distribution<> dis(0, nprocs - 1);
 
   int rand_pe = dis(gen);
-  CkPrintf("Randomly injecting load on PE %d\n", rand_pe);
+  CkPrintf("<LOAD IMB> Randomly injecting load on PE %d\n", rand_pe);
 
   for (int obj = 0; obj < statsData->objData.size(); obj++)
   {
@@ -71,8 +73,20 @@ static void load_imb_rand_inject(BaseLB::LDStats *statsData, double factor = 5)
 
 static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
 {
+  CkPrintf("<LOAD IMB> All pe randomly increase or decrease by up to %20 \n");
+
   int nprocs = statsData->nprocs();
   std::vector<int> scale(nprocs, 0);
+
+  // fill scale with rand values between .8 and 1.2
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_real_distribution<> dis(0.8, 1.2);
+
+  for (int i = 0; i < nprocs; i++)
+  {
+    scale[i] = dis(gen);
+  }
 
   for (int obj = 0; obj < statsData->objData.size(); obj++)
   {
@@ -92,6 +106,7 @@ static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
 
 static void load_imb_rand_pair(BaseLB::LDStats *statsData, int factor = 5)
 {
+  
   int nprocs = statsData->nprocs();
 
   std::random_device rd;
@@ -104,7 +119,7 @@ static void load_imb_rand_pair(BaseLB::LDStats *statsData, int factor = 5)
   while (rand_pe1 == rand_pe2)
     rand_pe2 = dis(gen);
 
-  CkPrintf("Randomly moving load from %d to %d\n", rand_pe1, rand_pe2);
+  CkPrintf("<LOAD IMB> Randomly moving load from %d to %d\n", rand_pe1, rand_pe2);
 
   for (int obj = 0; obj < statsData->objData.size(); obj++)
   {
@@ -174,7 +189,6 @@ static double computeDistance(std::vector<LBRealType> a, std::vector<LBRealType>
   return dist;
 }
 
-
 template <typename T>
 static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
 {
@@ -199,7 +213,7 @@ static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
       {
         LDObjData &oData = statsData->objData[i];
         int pe = obj->obj_node_map(i);
-        
+
         for (int comp = 0; comp < posDim; comp++)
           centroids[pe][comp] += oData.position[comp];
         objcount[pe]++;

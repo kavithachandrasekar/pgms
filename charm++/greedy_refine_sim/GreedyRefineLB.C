@@ -48,30 +48,37 @@ class Main : public CBase_Main
   BaseLB::LDStats *statsData;
   int stats_msg_count;
 
+  char *output_filename;
+
 public:
   Main(CkArgMsg *m)
   {
     mainProxy = thisProxy;
-    if (m->argc > 1)
+
+    if (m->argc != 4)
     {
-      int fn_type = atoi(m->argv[1]);
-      if (fn_type == 1)
-        obj_imb = (obj_imb_funcptr)load_imb_by_pe;
-      else if (fn_type == 2)
-        obj_imb = (obj_imb_funcptr)load_imb_by_history;
-      else if (fn_type = 3)
-        // randomly inject load on 1 PE
-        obj_imb = (obj_imb_funcptr)load_imb_rand_inject;
-      else if (fn_type = 4)
-        // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
-        obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
-      else
-      {
-        CkPrintf("Invalid load imbalance function (ARG1 : {1,2})\n");
-        CkExit();
-      }
+      CkPrintf("Usage: ./GreedyRefine <load_imb_fn: 1,2,3,4>, <filename>, <output filename>\n");
+      CkExit();
     }
-    const char *filename = "lbdata.dat.0";
+
+    int fn_type = atoi(m->argv[1]);
+    if (fn_type == 1)
+      obj_imb = (obj_imb_funcptr)load_imb_by_pe;
+    else if (fn_type == 2)
+      obj_imb = (obj_imb_funcptr)load_imb_by_history;
+    else if (fn_type = 3)
+      // randomly inject load on 1 PE
+      obj_imb = (obj_imb_funcptr)load_imb_rand_inject;
+    else if (fn_type = 4)
+      // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
+      obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
+    else
+    {
+      CkPrintf("Invalid load imbalance function (ARG1 : {1,2})\n");
+      CkExit();
+    }
+    const char *filename = m->argv[2];
+    output_filename = m->argv[3];
     int i;
     FILE *f = fopen(filename, "r");
     if (f == NULL)
@@ -121,7 +128,6 @@ public:
   }
   void init()
   {
-    CkPrintf("\nDone init");
     GreedyRefineLB *greedy_obj = greedy_array(0).ckLocal();
     greedy_obj->numNodes = statsData->procs.size();
     greedy_obj->stats = statsData;
@@ -148,7 +154,7 @@ public:
         continue;
       statsData->from_proc[obj] = greedy_obj->map_obid_pe[obj];
     }
-    const char *filename = "lbdata.dat.out.0";
+    const char *filename = output_filename;
     FILE *f = fopen(filename, "w");
     if (f == NULL)
     {
@@ -165,7 +171,7 @@ public:
     fclose(f);
 
     CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
-    CkPrintf("\nDONE");
+    CkPrintf("DONE\n");
     fflush(stdout);
     CkExit(0);
   }
@@ -527,11 +533,11 @@ double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
         minBGLoad = p.bgload;
       avgBGLoad += p.bgload;
     }
-    CkPrintf("[%d] GreedyRefineLB: num pes=%d, num objs=%d\n", CkMyPe(), n_pes, n_objs);
-    CkPrintf("[%d] Unavailable processors=%d, Unmigratable objs=%d\n", CkMyPe(), n_pes - availablePes, unmigratableObjs);
-    //    CkPrintf("[%d] min_bgload=%f mean_bgload=%f max_bgload=%f\n", CkMyPe(), minBGLoad, (avgBGLoad / availablePes), maxBGLoad);
-    //    CkPrintf("[%d] min_oload=%f mean_oload=%f max_oload=%f\n", CkMyPe(), minOload, (totalObjLoad / (n_objs - unmigratableObjs)), maxOload);
-    //    CkPrintf("[%d] min_speed=%f mean_speed=%f max_speed=%f\n", CkMyPe(), minSpeed, (avgSpeed / availablePes), maxSpeed);
+    // CkPrintf("[%d] GreedyRefineLB: num pes=%d, num objs=%d\n", CkMyPe(), n_pes, n_objs);
+    // CkPrintf("[%d] Unavailable processors=%d, Unmigratable objs=%d\n", CkMyPe(), n_pes - availablePes, unmigratableObjs);
+    //     CkPrintf("[%d] min_bgload=%f mean_bgload=%f max_bgload=%f\n", CkMyPe(), minBGLoad, (avgBGLoad / availablePes), maxBGLoad);
+    //     CkPrintf("[%d] min_oload=%f mean_oload=%f max_oload=%f\n", CkMyPe(), minOload, (totalObjLoad / (n_objs - unmigratableObjs)), maxOload);
+    //     CkPrintf("[%d] min_speed=%f mean_speed=%f max_speed=%f\n", CkMyPe(), minSpeed, (avgSpeed / availablePes), maxSpeed);
 
     double maxLoad = 0;
     std::vector<double> ploads(n_pes, -1);
@@ -548,7 +554,7 @@ double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
       if (ploads[pe] > maxLoad)
         maxLoad = ploads[pe];
     }
-    CkPrintf("[%d] maxload with current map=%f\n", CkMyPe(), maxLoad);
+    // CkPrintf("[%d] maxload with current map=%f\n", CkMyPe(), maxLoad);
 
     // CkPrintf("[%d] %f : Filled proc and obj stats\n", CkMyPe(), CkWallTimer() - strategyStartTime);
   }
@@ -611,7 +617,9 @@ void GreedyRefineLB::AtSync()
 
 void GreedyRefineLB::work()
 {
-  computeCommBytes(stats, this, 0);
+  CkPrintf("-----------------------------------------------\n");
+  computeCommBytes(stats, this, 1);
+  computeSpread(stats, this, 1);
   strategyStartTime = CkWallTimer();
   float A = 1.001, B = FLT_MAX; // Use A=0, B=-1 to imitate regular Greedy (ignore migrations)
   if (concurrent)
@@ -695,7 +703,6 @@ void GreedyRefineLB::work()
         M = maxLoad;
     }
   }
-  // ----------------------------------------------
 
   if (concurrent)
   {
@@ -719,9 +726,12 @@ void GreedyRefineLB::work()
                "but maxload after lb is %f higher than greedy. Consider testing with A=0, B=-1\n",
                CkMyPe(), migrationRatio, greedyRatio);
     }
-    CkPrintf("[%d] GreedyRefineLB: after lb, max_load=%.3f, migrations=%d(%.2f%%), ratioToGreedy=%.3f\n",
-             CkMyPe(), maxLoad, nmoves, 100.0 * migrationRatio, greedyRatio);
-    computeCommBytes(stats, this, 1);
+    CkPrintf("-----------------------------------------------\n");
+    CkPrintf("[After LB] migrations=%d(%.2f%%), ratioToGreedy=%.3f\n", nmoves, 100.0 * migrationRatio, greedyRatio);
+    CkPrintf("[After LB] Max load: %f\n", maxLoad);
+    computeCommBytes(stats, this, 0);
+    computeSpread(stats, this, 0);
+    CkPrintf("-----------------------------------------------\n");
     CkCallback cb(CkReductionTarget(Main, done), mainProxy);
     contribute(cb);
   }

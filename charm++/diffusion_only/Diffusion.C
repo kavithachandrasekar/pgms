@@ -62,6 +62,7 @@ class Main : public CBase_Main
   int iter = 0;
 
   GlobalMap *nodeGroup;
+  char *output_filename;
 
 public:
   Main(CkArgMsg *m)
@@ -69,7 +70,7 @@ public:
     mainProxy = thisProxy;
     if (m->argc != 4)
     {
-      CkPrintf("Usage: ./Diffusion <load_imb_fn: 1,2>, <filename>, <comm/centroid: 1,2>\n");
+      CkPrintf("Usage: ./Diffusion <load_imb_fn: 1,2,3,4>, <filename>, <comm/centroid: 1,2>, <output filename>\n");
       CkExit();
     }
     int fn_type = atoi(m->argv[1]);
@@ -96,6 +97,7 @@ public:
     }
 
     centroid = atoi(m->argv[3]) == 2;
+    output_filename = m->argv[4];
 
     const char *filename = m->argv[2];
     int i;
@@ -250,7 +252,7 @@ public:
 
       statsData->from_proc[obj] = nodeGroup->map_obid_pe[obj]; // map_obid_pe[obj];
     }
-    const char *filename = "lbdata.dat.out.0";
+    const char *filename = output_filename;
     FILE *f = fopen(filename, "w");
     if (f == NULL)
     {
