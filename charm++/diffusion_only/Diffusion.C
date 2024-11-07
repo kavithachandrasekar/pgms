@@ -68,7 +68,7 @@ public:
   Main(CkArgMsg *m)
   {
     mainProxy = thisProxy;
-    if (m->argc != 4)
+    if (m->argc != 5)
     {
       CkPrintf("Usage: ./Diffusion <load_imb_fn: 1,2,3,4>, <filename>, <comm/centroid: 1,2>, <output filename>\n");
       CkExit();
