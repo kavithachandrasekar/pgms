@@ -1,6 +1,6 @@
 /**
  * \addtogroup CkLdb
-*/
+ */
 /*@{*/
 
 /**
@@ -18,7 +18,7 @@
  * supports processor avail bitvector
  * supports nonmigratable attrib
  *
-*/
+ */
 
 #include "charm++.h"
 #include "ckgraph.h"
@@ -43,23 +43,39 @@ using namespace std;
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_GreedyRefineLB greedy_array;
 static obj_imb_funcptr obj_imb;
-class Main : public CBase_Main {
+class Main : public CBase_Main
+{
   BaseLB::LDStats *statsData;
   int stats_msg_count;
-  public:
-  Main(CkArgMsg* m) {
+
+public:
+  Main(CkArgMsg *m)
+  {
     mainProxy = thisProxy;
-    if(m->argc > 1) {
-      int fn_type =  atoi(m->argv[1]);
-      if(fn_type == 1)
-        obj_imb = (obj_imb_funcptr) load_imb_by_pe;
-      else if(fn_type == 2)
-        obj_imb = (obj_imb_funcptr) load_imb_by_history;
+    if (m->argc > 1)
+    {
+      int fn_type = atoi(m->argv[1]);
+      if (fn_type == 1)
+        obj_imb = (obj_imb_funcptr)load_imb_by_pe;
+      else if (fn_type == 2)
+        obj_imb = (obj_imb_funcptr)load_imb_by_history;
+      else if (fn_type = 3)
+        // randomly inject load on 1 PE
+        obj_imb = (obj_imb_funcptr)load_imb_rand_inject;
+      else if (fn_type = 4)
+        // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
+        obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
+      else
+      {
+        CkPrintf("Invalid load imbalance function (ARG1 : {1,2})\n");
+        CkExit();
+      }
     }
-    const char* filename = "lbdata.dat.0";
-        int i;
+    const char *filename = "lbdata.dat.0";
+    int i;
     FILE *f = fopen(filename, "r");
-    if (f==NULL) {
+    if (f == NULL)
+    {
       CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", filename);
     }
     BaseLB::LDStats *statsDatax = new BaseLB::LDStats;
@@ -70,15 +86,16 @@ class Main : public CBase_Main {
     PUP::fromDisk pd(f);
     PUP::machineInfo machInfo;
 
-    pd((char *)&machInfo, sizeof(machInfo));  // read machine info
+    pd((char *)&machInfo, sizeof(machInfo)); // read machine info
     PUP::xlater p(machInfo, pd);
 
-    if (_lb_args.lbversion() > 1) {
-      p|_lb_args.lbversion();   // write version number
+    if (_lb_args.lbversion() > 1)
+    {
+      p | _lb_args.lbversion(); // write version number
       CkPrintf("LB> File version detected: %d\n", _lb_args.lbversion());
       CmiAssert(_lb_args.lbversion() <= LB_FORMAT_VERSION);
     }
-    p|stats_msg_count;
+    p | stats_msg_count;
 
     CmiPrintf("readStatsMsgs for %d pes starts ... \n", stats_msg_count);
 
@@ -90,9 +107,10 @@ class Main : public CBase_Main {
     CmiPrintf("ReadStatsMsg from %s completed\n", filename);
     statsData = statsDatax;
     int nmigobj = 0;
-    for (i = 0; i < statsData->objData.size(); i++) {
+    for (i = 0; i < statsData->objData.size(); i++)
+    {
       if (statsData->objData[i].migratable)
-          nmigobj++;
+        nmigobj++;
     }
     statsData->n_migrateobjs = nmigobj;
 
@@ -101,14 +119,16 @@ class Main : public CBase_Main {
     statsData->makeCommHash();
     greedy_array = CProxy_GreedyRefineLB::ckNew(1);
   }
-  void init(){
+  void init()
+  {
     CkPrintf("\nDone init");
-    GreedyRefineLB *greedy_obj= greedy_array(0).ckLocal();
+    GreedyRefineLB *greedy_obj = greedy_array(0).ckLocal();
     greedy_obj->numNodes = statsData->procs.size();
     greedy_obj->stats = statsData;
     greedy_obj->map_obj_id.reserve(statsData->objData.size());
     greedy_obj->map_obid_pe.reserve(statsData->objData.size());
-    for(int obj = 0; obj < statsData->objData.size(); obj++) {
+    for (int obj = 0; obj < statsData->objData.size(); obj++)
+    {
       LDObjData &oData = statsData->objData[obj];
       if (!oData.migratable)
         continue;
@@ -119,35 +139,40 @@ class Main : public CBase_Main {
     greedy_array.AtSync();
   }
 
-  void done() {
-    GreedyRefineLB *greedy_obj= greedy_array(0).ckLocal();
-    for(int obj = 0; obj < statsData->objData.size(); obj++) {
+  void done()
+  {
+    GreedyRefineLB *greedy_obj = greedy_array(0).ckLocal();
+    for (int obj = 0; obj < statsData->objData.size(); obj++)
+    {
       if (!statsData->objData[obj].migratable)
         continue;
       statsData->from_proc[obj] = greedy_obj->map_obid_pe[obj];
     }
-    const char* filename = "lbdata.dat.out.0";
+    const char *filename = "lbdata.dat.out.0";
     FILE *f = fopen(filename, "w");
-    if (f==NULL) {
+    if (f == NULL)
+    {
       CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
     }
     const PUP::machineInfo &machInfo = PUP::machineInfo::current();
     PUP::toDisk p(f);
     p((char *)&machInfo, sizeof(machInfo)); // machine info
 
-    p|_lb_args.lbversion();   // write version number
-    p|stats_msg_count;
+    p | _lb_args.lbversion(); // write version number
+    p | stats_msg_count;
     statsData->pup(p);
 
     fclose(f);
 
     CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
-      CkPrintf("\nDONE");fflush(stdout);
-      CkExit(0);
+    CkPrintf("\nDONE");
+    fflush(stdout);
+    CkExit(0);
   }
 };
 
-class GreedyRefineLB::Solution {
+class GreedyRefineLB::Solution
+{
 public:
   Solution() {}
   Solution(int pe, double maxLoad, int nmoves) : pe(pe), max_load(maxLoad), migrations(nmoves) {}
@@ -155,50 +180,63 @@ public:
   float max_load;
   int migrations;
 
-  void pup(PUP::er &p) {
-    p|pe;
-    p|max_load;
-    p|migrations;
+  void pup(PUP::er &p)
+  {
+    p | pe;
+    p | max_load;
+    p | migrations;
   }
 };
 
 // custom heap to allow removal of processors from any position
-class GreedyRefineLB::PHeap {
+class GreedyRefineLB::PHeap
+{
 public:
-  PHeap(int numpes) {
-    Q.reserve(numpes+1);
-    Q.push_back(NULL);  // first element of the array is NULL
+  PHeap(int numpes)
+  {
+    Q.reserve(numpes + 1);
+    Q.push_back(NULL); // first element of the array is NULL
   }
 
-  void addProcessors(std::vector<GreedyRefineLB::GProc> &procs, bool bgLoadZero, bool insert=true) {
-    for (int i=0; i < procs.size(); i++) {
+  void addProcessors(std::vector<GreedyRefineLB::GProc> &procs, bool bgLoadZero, bool insert = true)
+  {
+    for (int i = 0; i < procs.size(); i++)
+    {
       GreedyRefineLB::GProc &p = procs[i];
-      if (p.available) {
+      if (p.available)
+      {
         p.load = p.bgload;
-        if (insert) {
+        if (insert)
+        {
           Q.push_back(&p);
-          p.pos = Q.size()-1;
+          p.pos = Q.size() - 1;
         }
       }
     }
-    if (!bgLoadZero) buildMinHeap();
+    if (!bgLoadZero)
+      buildMinHeap();
   }
 
-  inline GreedyRefineLB::GProc *top() const {
+  inline GreedyRefineLB::GProc *top() const
+  {
     CkAssert(Q.size() > 1);
     return Q[1];
   }
 
-  inline void push(GreedyRefineLB::GProc *p) {
+  inline void push(GreedyRefineLB::GProc *p)
+  {
     Q.push_back(p);
-    p->pos = Q.size()-1;
+    p->pos = Q.size() - 1;
     siftUp(p->pos);
   }
 
-  inline GreedyRefineLB::GProc *pop() {
-    if (Q.size() == 1) return NULL;
+  inline GreedyRefineLB::GProc *pop()
+  {
+    if (Q.size() == 1)
+      return NULL;
     GreedyRefineLB::GProc *retval;
-    if (Q.size() == 2) {
+    if (Q.size() == 2)
+    {
       retval = Q[1];
       Q.pop_back();
       return retval;
@@ -212,117 +250,147 @@ public:
   }
 
   // remove processor from any position in the heap
-  void remove(GreedyRefineLB::GProc *p) {
+  void remove(GreedyRefineLB::GProc *p)
+  {
     int pos = p->pos;
-    if ((Q.size() == 2) || (pos == Q.size()-1)) return Q.pop_back();
-    if (pos == 1) { pop(); return; }
+    if ((Q.size() == 2) || (pos == Q.size() - 1))
+      return Q.pop_back();
+    if (pos == 1)
+    {
+      pop();
+      return;
+    }
     Q[pos] = Q.back();
     Q.pop_back();
     Q[pos]->pos = pos;
-    if (Q[pos/2]->load > Q[pos]->load) siftUp(pos);
-    else siftDown(pos);
+    if (Q[pos / 2]->load > Q[pos]->load)
+      siftUp(pos);
+    else
+      siftDown(pos);
   }
 
-  inline void clear() {
+  inline void clear()
+  {
     Q.clear();
     Q.push_back(NULL);
   }
 
 private:
-
-  void min_heapify(int i) {
-    const int left = 2*i;
-    const int right = 2*i + 1;
+  void min_heapify(int i)
+  {
+    const int left = 2 * i;
+    const int right = 2 * i + 1;
     int smallest = i;
-    if ((left < Q.size()) && (Q[left]->load < Q[smallest]->load)) smallest = left;
-    if ((right < Q.size()) && (Q[right]->load < Q[smallest]->load)) smallest = right;
-    if (smallest != i) {
-      swap(i,smallest);
+    if ((left < Q.size()) && (Q[left]->load < Q[smallest]->load))
+      smallest = left;
+    if ((right < Q.size()) && (Q[right]->load < Q[smallest]->load))
+      smallest = right;
+    if (smallest != i)
+    {
+      swap(i, smallest);
       Q[i]->pos = i;
       Q[smallest]->pos = smallest;
       min_heapify(smallest);
     }
   }
 
-  void inline buildMinHeap() {
-    for (int i=Q.size()/2; i > 0; i--) min_heapify(i);
+  void inline buildMinHeap()
+  {
+    for (int i = Q.size() / 2; i > 0; i--)
+      min_heapify(i);
   }
 
-  inline void swap(int pos1, int pos2) {
+  inline void swap(int pos1, int pos2)
+  {
     GreedyRefineLB::GProc *t = Q[pos1];
     Q[pos1] = Q[pos2];
     Q[pos2] = t;
   }
 
-  void siftUp(int pos) {
-    if (pos == 1) return;   // reached root
-    int ppos = pos/2;
-    if (Q[ppos]->load > Q[pos]->load) {
-      swap(ppos,pos);
+  void siftUp(int pos)
+  {
+    if (pos == 1)
+      return; // reached root
+    int ppos = pos / 2;
+    if (Q[ppos]->load > Q[pos]->load)
+    {
+      swap(ppos, pos);
       Q[ppos]->pos = ppos;
       Q[pos]->pos = pos;
       siftUp(ppos);
     }
   }
 
-  inline int minChild(int pos) const {
-    int c1 = pos*2;
-    int c2 = pos*2 + 1;
-    if (c1 >= Q.size()) return -1;
-    if (c2 >= Q.size()) return c1;
-    if (Q[c1]->load < Q[c2]->load) return c1;
-    else return c2;
+  inline int minChild(int pos) const
+  {
+    int c1 = pos * 2;
+    int c2 = pos * 2 + 1;
+    if (c1 >= Q.size())
+      return -1;
+    if (c2 >= Q.size())
+      return c1;
+    if (Q[c1]->load < Q[c2]->load)
+      return c1;
+    else
+      return c2;
   }
 
-  void siftDown(int pos) {
+  void siftDown(int pos)
+  {
     int cpos = minChild(pos);
-    if (cpos == -1) return;
-    if (Q[pos]->load > Q[cpos]->load) {
-      swap(pos,cpos);
+    if (cpos == -1)
+      return;
+    if (Q[pos]->load > Q[cpos]->load)
+    {
+      swap(pos, cpos);
       Q[cpos]->pos = cpos;
       Q[pos]->pos = pos;
       siftDown(cpos);
     }
   }
 
-  std::vector<GreedyRefineLB::GProc*> Q;
+  std::vector<GreedyRefineLB::GProc *> Q;
 };
-
 
 #define PERCENTMOVE 30.0
 
-GreedyRefineLB::GreedyRefineLB():migrationTolerance(1.0)
+GreedyRefineLB::GreedyRefineLB() : migrationTolerance(1.0)
 {
   if ((CkMyPe() == 0))
     CkPrintf("CharmLB> GreedyRefineLB created.\n");
-  if (PERCENTMOVE < 100) {
-    migrationTolerance = float(PERCENTMOVE)/100.0;
+  if (PERCENTMOVE < 100)
+  {
+    migrationTolerance = float(PERCENTMOVE) / 100.0;
   }
-  concurrent = false;//true;
+  concurrent = false; // true;
   contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 }
 
 // ------------------------------------------------
 
 // regular greedy lb algorithm
-double GreedyRefineLB::greedyLB(const std::vector<GreedyRefineLB::GObj*> &pobjs,
-              GreedyRefineLB::PHeap &procHeap,
-              const BaseLB::LDStats *stats) const
+double GreedyRefineLB::greedyLB(const std::vector<GreedyRefineLB::GObj *> &pobjs,
+                                GreedyRefineLB::PHeap &procHeap,
+                                const BaseLB::LDStats *stats) const
 {
   double max_load = 0;
   int nmoves = 0;
-  for (int i=0; i < pobjs.size(); i++) {
+  for (int i = 0; i < pobjs.size(); i++)
+  {
     const GreedyRefineLB::GObj *obj = pobjs[i];
-    GreedyRefineLB::GProc *p = procHeap.pop();  // least loaded processor
+    GreedyRefineLB::GProc *p = procHeap.pop(); // least loaded processor
     // update processor load
     p->load += (obj->load / p->speed);
     procHeap.push(p);
 
-    if (p->id != obj->oldPE) nmoves++;
-    if (p->load > max_load) max_load = p->load;
+    if (p->id != obj->oldPE)
+      nmoves++;
+    if (p->load > max_load)
+      max_load = p->load;
   }
 
-  if ((CkMyPe() == cur_ld_balancer+1) && (_lb_args.debug() > 1)) {
+  if ((CkMyPe() == cur_ld_balancer + 1) && (_lb_args.debug() > 1))
+  {
     CkPrintf("[%d] %f : Greedy strategy nmoves=%d, max_load=%f\n", CkMyPe(),
              CkWallTimer() - strategyStartTime, nmoves, max_load);
   }
@@ -332,85 +400,115 @@ double GreedyRefineLB::greedyLB(const std::vector<GreedyRefineLB::GObj*> &pobjs,
 // -----------------------------------------------
 #if __DEBUG_GREEDY_REFINE_
 #include <fstream>
-void GreedyRefineLB::dumpObjLoads(std::vector<GreedyRefineLB::GObj> &objs) {
+void GreedyRefineLB::dumpObjLoads(std::vector<GreedyRefineLB::GObj> &objs)
+{
   std::ofstream outfile("objloads.txt");
   outfile << objs.size() << std::endl;
-  for (int i=0; i < objs.size(); i++) {
+  for (int i = 0; i < objs.size(); i++)
+  {
     GreedyRefineLB::GObj &obj = objs[i];
-    if ((i > 0) && (i % 100 == 0)) outfile << obj.load << std::endl;
-    else outfile << obj.load << " ";
+    if ((i > 0) && (i % 100 == 0))
+      outfile << obj.load << std::endl;
+    else
+      outfile << obj.load << " ";
   }
   outfile.close();
 }
-void GreedyRefineLB::dumpProcLoads(std::vector<GreedyRefineLB::GProc> &procs) {
+void GreedyRefineLB::dumpProcLoads(std::vector<GreedyRefineLB::GProc> &procs)
+{
   std::ofstream outfile("proc_bg_loads.txt");
   outfile << procs.size() << std::endl;
-  for (int i=0; i < procs.size(); i++) {
+  for (int i = 0; i < procs.size(); i++)
+  {
     GreedyRefineLB::GProc &p = procs[i];
-    if ((i > 0) && (i % 100 == 0)) outfile << p.load << std::endl;
-    else outfile << p.load << " ";
+    if ((i > 0) && (i % 100 == 0))
+      outfile << p.load << std::endl;
+    else
+      outfile << p.load << " ";
   }
   outfile.close();
 }
 #endif
 
 double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
-                            std::vector<GreedyRefineLB::GObj> &objs,
-                            std::vector<GreedyRefineLB::GObj*> &pobjs,
-                            std::vector<GreedyRefineLB::GProc> &procs,
-                            PHeap &procHeap)
+                                std::vector<GreedyRefineLB::GObj> &objs,
+                                std::vector<GreedyRefineLB::GObj *> &pobjs,
+                                std::vector<GreedyRefineLB::GProc> &procs,
+                                PHeap &procHeap)
 {
   const int n_pes = stats->nprocs();
   const int n_objs = stats->objData.size();
   // most of these variables are just for printing stats when _lb_args.debug()
   int unmigratableObjs = 0;
-  availablePes = 0; totalObjLoad = 0;
-  double minBGLoad = DBL_MAX; double avgBGLoad = 0; double maxBGLoad = 0;
-  double minSpeed  = DBL_MAX; double maxSpeed  = 0; double avgSpeed  = 0;
-  double minOload  = DBL_MAX; double maxOload  = 0;
+  availablePes = 0;
+  totalObjLoad = 0;
+  double minBGLoad = DBL_MAX;
+  double avgBGLoad = 0;
+  double maxBGLoad = 0;
+  double minSpeed = DBL_MAX;
+  double maxSpeed = 0;
+  double avgSpeed = 0;
+  double minOload = DBL_MAX;
+  double maxOload = 0;
 
-  for (int pe=0; pe < n_pes; pe++) {
+  for (int pe = 0; pe < n_pes; pe++)
+  {
     GreedyRefineLB::GProc &p = procs[pe];
     p.id = pe;
     p.available = stats->procs[pe].available;
     p.speed = stats->procs[pe].pe_speed;
-    if (p.available) {
+    if (p.available)
+    {
       availablePes++;
       p.bgload = stats->procs[pe].bg_walltime;
-      if (p.bgload > maxBGLoad) maxBGLoad = p.bgload;
-      if (_lb_args.debug() > 1) {
+      if (p.bgload > maxBGLoad)
+        maxBGLoad = p.bgload;
+      if (_lb_args.debug() > 1)
+      {
         double &speed = stats->procs[pe].pe_speed;
-        if (speed < minSpeed) minSpeed = speed;
-        if (speed > maxSpeed) maxSpeed = speed;
+        if (speed < minSpeed)
+          minSpeed = speed;
+        if (speed > maxSpeed)
+          maxSpeed = speed;
         avgSpeed += speed;
       }
     }
   }
-  if (!availablePes) CkAbort("GreedyRefineLB: No available processors\n");
+  if (!availablePes)
+    CkAbort("GreedyRefineLB: No available processors\n");
   obj_imb(stats);
-  for (int i=0; i < n_objs; i++) {
+  for (int i = 0; i < n_objs; i++)
+  {
     LDObjData &oData = stats->objData[i];
     GreedyRefineLB::GObj &obj = objs[i];
     int pe = stats->from_proc[i];
     obj.id = i;
     obj.oldPE = pe;
     CkAssert(pe >= 0 && pe <= n_pes);
-    if (pe == n_pes) obj.oldPE = -1; // this can happen in HybridLB if object comes from outside group. mark oldPE as -1 in this situation
-    if (!oData.migratable) {
+    if (pe == n_pes)
+      obj.oldPE = -1; // this can happen in HybridLB if object comes from outside group. mark oldPE as -1 in this situation
+    if (!oData.migratable)
+    {
       CkAssert(pe < n_pes);
       unmigratableObjs++;
       GreedyRefineLB::GProc &p = procs[pe];
       if (!p.available)
         CkAbort("GreedyRefineLB: nonmigratable object on unavailable processor\n");
       p.bgload += oData.wallTime; // take non-migratable object load as background load
-      if (p.bgload > maxBGLoad) maxBGLoad = p.bgload;
-    } else {
+      if (p.bgload > maxBGLoad)
+        maxBGLoad = p.bgload;
+    }
+    else
+    {
       obj.load = oData.wallTime;
       pobjs.push_back(&obj);
       totalObjLoad += obj.load;
-      if (_lb_args.debug() > 1) {
-        if (obj.load < minOload) minOload = obj.load;
-        if (obj.load > maxOload) maxOload = obj.load;
+      if (_lb_args.debug() > 1)
+      {
+        if (obj.load < minOload)
+          minOload = obj.load;
+        if (obj.load > maxOload)
+          maxOload = obj.load;
       }
     }
   }
@@ -418,34 +516,41 @@ double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
   procHeap.addProcessors(procs, (maxBGLoad <= 0.001), true);
 
   // ---- print some stats ----
-//  if ((_lb_args.debug() > 1) && (!concurrent || (CkMyPe() == cur_ld_balancer)))
+  //  if ((_lb_args.debug() > 1) && (!concurrent || (CkMyPe() == cur_ld_balancer)))
   {
-    for (int pe=0; pe < n_pes; pe++) {
+    for (int pe = 0; pe < n_pes; pe++)
+    {
       GreedyRefineLB::GProc &p = procs[pe];
-      if (!p.available) continue;
-      if (p.bgload < minBGLoad) minBGLoad = p.bgload;
+      if (!p.available)
+        continue;
+      if (p.bgload < minBGLoad)
+        minBGLoad = p.bgload;
       avgBGLoad += p.bgload;
     }
     CkPrintf("[%d] GreedyRefineLB: num pes=%d, num objs=%d\n", CkMyPe(), n_pes, n_objs);
     CkPrintf("[%d] Unavailable processors=%d, Unmigratable objs=%d\n", CkMyPe(), n_pes - availablePes, unmigratableObjs);
-//    CkPrintf("[%d] min_bgload=%f mean_bgload=%f max_bgload=%f\n", CkMyPe(), minBGLoad, (avgBGLoad / availablePes), maxBGLoad);
-//    CkPrintf("[%d] min_oload=%f mean_oload=%f max_oload=%f\n", CkMyPe(), minOload, (totalObjLoad / (n_objs - unmigratableObjs)), maxOload);
-//    CkPrintf("[%d] min_speed=%f mean_speed=%f max_speed=%f\n", CkMyPe(), minSpeed, (avgSpeed / availablePes), maxSpeed);
+    //    CkPrintf("[%d] min_bgload=%f mean_bgload=%f max_bgload=%f\n", CkMyPe(), minBGLoad, (avgBGLoad / availablePes), maxBGLoad);
+    //    CkPrintf("[%d] min_oload=%f mean_oload=%f max_oload=%f\n", CkMyPe(), minOload, (totalObjLoad / (n_objs - unmigratableObjs)), maxOload);
+    //    CkPrintf("[%d] min_speed=%f mean_speed=%f max_speed=%f\n", CkMyPe(), minSpeed, (avgSpeed / availablePes), maxSpeed);
 
     double maxLoad = 0;
     std::vector<double> ploads(n_pes, -1);
-    for (int i=0; i < n_objs; i++) {
+    for (int i = 0; i < n_objs; i++)
+    {
       GreedyRefineLB::GObj &o = objs[i];
       int pe = o.oldPE;
-      if (pe < 0) continue;
-      if (ploads[pe] < 0) ploads[pe] = procs[pe].bgload;
-      if (stats->objData[i].migratable)  // load for this object is already counted if !migratable
+      if (pe < 0)
+        continue;
+      if (ploads[pe] < 0)
+        ploads[pe] = procs[pe].bgload;
+      if (stats->objData[i].migratable) // load for this object is already counted if !migratable
         ploads[pe] += o.load;
-      if (ploads[pe] > maxLoad) maxLoad = ploads[pe];
+      if (ploads[pe] > maxLoad)
+        maxLoad = ploads[pe];
     }
     CkPrintf("[%d] maxload with current map=%f\n", CkMyPe(), maxLoad);
 
-    //CkPrintf("[%d] %f : Filled proc and obj stats\n", CkMyPe(), CkWallTimer() - strategyStartTime);
+    // CkPrintf("[%d] %f : Filled proc and obj stats\n", CkMyPe(), CkWallTimer() - strategyStartTime);
   }
 
   return maxBGLoad;
@@ -455,14 +560,23 @@ static const float Avals[] = {1.0, 1.005, 1.01, 1.015, 1.02, 1.03, 1.04, 1.05, 1
 static const float Bvals[] = {1.0, 1.05, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, FLT_MAX};
 #define Avals_len 14
 #define Bvals_len 16
-#define NUM_SOLUTIONS Avals_len*Bvals_len+1
-static void getGreedyRefineParams(int rank, float &A, float &B) {
-  if (rank == 0) { A = 0; B = -1; return; } // causes PE0 to run regular greedy
+#define NUM_SOLUTIONS Avals_len *Bvals_len + 1
+static void getGreedyRefineParams(int rank, float &A, float &B)
+{
+  if (rank == 0)
+  {
+    A = 0;
+    B = -1;
+    return;
+  } // causes PE0 to run regular greedy
   rank--;
   int x = rank / Bvals_len;
-  if (x >= Avals_len) {
+  if (x >= Avals_len)
+  {
     A = B = -1;
-  } else {
+  }
+  else
+  {
     A = Avals[x];
     B = Bvals[rank % Bvals_len];
   }
@@ -477,19 +591,21 @@ void GreedyRefineLB::sendSolution(double maxLoad, int migrations)
   size_t buf_size = sizeof(GreedyRefineLB::Solution);
   void *buffer = malloc(buf_size);
   PUP::toMem pd(buffer);
-  pd|sol;
+  pd | sol;
 
-  CkCallback cb(CkIndex_GreedyRefineLB::receiveSolutions((CkReductionMsg*)NULL), thisProxy[cur_ld_balancer]);
+  CkCallback cb(CkIndex_GreedyRefineLB::receiveSolutions((CkReductionMsg *)NULL), thisProxy[cur_ld_balancer]);
   contribute(buf_size, buffer, CkReduction::set, cb);
 
-  if ((_lb_args.debug() > 1) && (CkMyPe() == cur_ld_balancer)) {
+  if ((_lb_args.debug() > 1) && (CkMyPe() == cur_ld_balancer))
+  {
     CkPrintf("[%d] %f : Called gather/reduction\n", CkMyPe(), CkWallTimer() - strategyStartTime);
   }
 
   free(buffer);
 }
 
-void GreedyRefineLB::AtSync() {
+void GreedyRefineLB::AtSync()
+{
   work();
 }
 
@@ -498,10 +614,12 @@ void GreedyRefineLB::work()
   computeCommBytes(stats, this, 0);
   strategyStartTime = CkWallTimer();
   float A = 1.001, B = FLT_MAX; // Use A=0, B=-1 to imitate regular Greedy (ignore migrations)
-  if (concurrent) {
+  if (concurrent)
+  {
     getGreedyRefineParams(CkMyPe(), A, B);
-    if (A < 0) {
-      sendSolution(-1,-1);  // send empty response to PE0
+    if (A < 0)
+    {
+      sendSolution(-1, -1); // send empty response to PE0
       return;
     }
   }
@@ -512,7 +630,7 @@ void GreedyRefineLB::work()
   std::vector<GreedyRefineLB::GObj> objs(totalObjs);
   // will sort pobjs instead of objs (faster swapping). will only contain pointers
   // to migratable objects
-  std::vector<GreedyRefineLB::GObj*> pobjs;
+  std::vector<GreedyRefineLB::GObj *> pobjs;
   pobjs.reserve(totalObjs);
 
   std::vector<GreedyRefineLB::GProc> procs(n_pes);
@@ -526,7 +644,8 @@ void GreedyRefineLB::work()
   std::sort(pobjs.begin(), pobjs.end(), GreedyRefineLB::ObjLoadGreater());
 
   double M = 0, greedyMaxLoad = 0;
-  if (B > 0) {
+  if (B > 0)
+  {
     // greedy preprocessing: tells me what max_load to aim for
     M = greedyLB(pobjs, procHeap, stats);
     greedyMaxLoad = M;
@@ -539,39 +658,47 @@ void GreedyRefineLB::work()
   // this would be in case I decide to drop greedyLB preprocessing, but the preprocessing
   // seems useful and doesn't add much time
   //if (M <= 0) M = std::max(totalObjLoad/availablePes, maxLoad) * A;
-  else*/ M *= A;
-  if ((_lb_args.debug() > 1) && (CkMyPe() == cur_ld_balancer)) {
+  else*/
+  M *= A;
+  if ((_lb_args.debug() > 1) && (CkMyPe() == cur_ld_balancer))
+  {
     CkPrintf("maxLoad=%f totalObjLoad=%f M=%f A=%f B=%f\n", maxLoad, totalObjLoad, M, A, B);
   }
-  for (int i=0; i < pobjs.size(); i++) {
+  for (int i = 0; i < pobjs.size(); i++)
+  {
     const GreedyRefineLB::GObj *obj = pobjs[i];
-    GreedyRefineLB::GProc *llp = procHeap.top();          // least loaded processor
+    GreedyRefineLB::GProc *llp = procHeap.top(); // least loaded processor
     GreedyRefineLB::GProc *prevPe = NULL;
-    if (obj->oldPE >= 0) prevPe = &(procs[obj->oldPE]); // current processor
+    if (obj->oldPE >= 0)
+      prevPe = &(procs[obj->oldPE]); // current processor
 
     // choose processor
     GreedyRefineLB::GProc *p = llp;
-    if (prevPe && (prevPe->load <= (llp->load+0.01)*B) && (prevPe->load + obj->load <= M) && (prevPe->available))
-      p = prevPe;  // use same PE
+    if (prevPe && (prevPe->load <= (llp->load + 0.01) * B) && (prevPe->load + obj->load <= M) && (prevPe->available))
+      p = prevPe; // use same PE
 
     // update processor load
     procHeap.remove(p);
     p->load += (obj->load / p->speed);
     procHeap.push(p);
 
-    if (p->id != obj->oldPE) {
+    if (p->id != obj->oldPE)
+    {
       nmoves++;
       stats->to_proc[obj->id] = p->id;
       map_obid_pe[obj->id] = p->id;
     }
-    if (p->load > maxLoad) {
+    if (p->load > maxLoad)
+    {
       maxLoad = p->load;
-      if (maxLoad > M) M = maxLoad;
+      if (maxLoad > M)
+        M = maxLoad;
     }
   }
   // ----------------------------------------------
 
-  if (concurrent) {
+  if (concurrent)
+  {
 
     sendSolution(maxLoad, nmoves);
 
@@ -579,17 +706,21 @@ void GreedyRefineLB::work()
     CkCallback cb(CkReductionTarget(GreedyRefineLB, receiveTotalTime), thisProxy[cur_ld_balancer]);
     contribute(sizeof(double), &strategyStartTime, CkReduction::sum_double, cb);
 #endif
-  } else {
+  }
+  else
+  {
     double greedyRatio = 1.0;
-    if (B > 0) greedyRatio = maxLoad / greedyMaxLoad;
-    double migrationRatio = nmoves/double(pobjs.size());
-    if ((greedyRatio > 1.03) && (migrationRatio < migrationTolerance)) {
+    if (B > 0)
+      greedyRatio = maxLoad / greedyMaxLoad;
+    double migrationRatio = nmoves / double(pobjs.size());
+    if ((greedyRatio > 1.03) && (migrationRatio < migrationTolerance))
+    {
       CkPrintf("[%d] GreedyRefine: WARNING - migration ratio is %.3f (within user-specified tolerance).\n"
                "but maxload after lb is %f higher than greedy. Consider testing with A=0, B=-1\n",
                CkMyPe(), migrationRatio, greedyRatio);
     }
     CkPrintf("[%d] GreedyRefineLB: after lb, max_load=%.3f, migrations=%d(%.2f%%), ratioToGreedy=%.3f\n",
-             CkMyPe(), maxLoad, nmoves, 100.0*migrationRatio, greedyRatio);
+             CkMyPe(), maxLoad, nmoves, 100.0 * migrationRatio, greedyRatio);
     computeCommBytes(stats, this, 1);
     CkCallback cb(CkReductionTarget(Main, done), mainProxy);
     contribute(cb);
@@ -609,50 +740,59 @@ void GreedyRefineLB::receiveSolutions(CkReductionMsg *msg)
   int migrationsAllowed = totalObjs * migrationTolerance;
   // feasible solutions are those satistying user's migration constraint
   bool feasibleSolutions = false;
-  float lowest_max_load = FLT_MAX;    // lowest max load of all solutions
-  float lowest_max_load_f = FLT_MAX;  // lowest max load of feasible solution set
-  float highest_max_load = 0;         // highest max load of all solutions
-  int lowestMigrations = INT_MAX;     // lowest num migrations of all solutions
+  float lowest_max_load = FLT_MAX;                // lowest max load of all solutions
+  float lowest_max_load_f = FLT_MAX;              // lowest max load of feasible solution set
+  float highest_max_load = 0;                     // highest max load of all solutions
+  int lowestMigrations = INT_MAX;                 // lowest num migrations of all solutions
   const GreedyRefineLB::Solution *bestSol = NULL; // best solution
 
   // first pass. Will record solution with lowest migrations as the best, in case
   // there is no feasible solution
-  CkReduction::setElement *current = (CkReduction::setElement*)msg->getData();  // Get the first element in the set
+  CkReduction::setElement *current = (CkReduction::setElement *)msg->getData(); // Get the first element in the set
   int numSolutions = 0;
-  for ( ; current && (numSolutions < NUM_SOLUTIONS); current = current->next()) {
+  for (; current && (numSolutions < NUM_SOLUTIONS); current = current->next())
+  {
     PUP::fromMem pd(&current->data);
-    pd|results[numSolutions]; // store result
-    if (results[numSolutions].migrations >= 0) {  // valid result
+    pd | results[numSolutions]; // store result
+    if (results[numSolutions].migrations >= 0)
+    { // valid result
       const GreedyRefineLB::Solution &r = results[numSolutions++];
-      if ((r.migrations <= migrationsAllowed) && (r.max_load < lowest_max_load_f)) {
+      if ((r.migrations <= migrationsAllowed) && (r.max_load < lowest_max_load_f))
+      {
         lowest_max_load_f = r.max_load;
         feasibleSolutions = true;
       }
 
       if ((r.migrations < lowestMigrations) ||
-        ((r.migrations == lowestMigrations) && (r.max_load < bestSol->max_load))) {
+          ((r.migrations == lowestMigrations) && (r.max_load < bestSol->max_load)))
+      {
         lowestMigrations = r.migrations;
         bestSol = &r;
       }
 
-      if (r.max_load < lowest_max_load) lowest_max_load = r.max_load;
-      if (r.max_load > highest_max_load) highest_max_load = r.max_load;
+      if (r.max_load < lowest_max_load)
+        lowest_max_load = r.max_load;
+      if (r.max_load > highest_max_load)
+        highest_max_load = r.max_load;
     }
   }
   results.resize(numSolutions); // for cases where CkNumPes() < NUM_SOLUTIONS
   CkAssert(numSolutions > 0);
 
-  if (feasibleSolutions) {
+  if (feasibleSolutions)
+  {
     // second pass, get solution with low max load and migrations from feasible set
-    int bestMigrations = INT_MAX;  // num migrations of best solution
-    for (int i=0; i < results.size(); i++) {
+    int bestMigrations = INT_MAX; // num migrations of best solution
+    for (int i = 0; i < results.size(); i++)
+    {
       const GreedyRefineLB::Solution &r = results[i];
       // Select if we find (fewer migrations and load within tolerance) or
       // (same as lowest migration and better load).  Since we know a feasible
       // solution exists and we only minimize here, we guarantee that we'll end
       // with a feasible solution.
-      if ((r.migrations < bestMigrations && r.max_load <= lowest_max_load_f*LOAD_MIG_BAL) ||
-          (r.migrations == bestMigrations && r.max_load < bestSol->max_load)) {
+      if ((r.migrations < bestMigrations && r.max_load <= lowest_max_load_f * LOAD_MIG_BAL) ||
+          (r.migrations == bestMigrations && r.max_load < bestSol->max_load))
+      {
         bestMigrations = r.migrations;
         bestSol = &r;
       }
@@ -661,7 +801,8 @@ void GreedyRefineLB::receiveSolutions(CkReductionMsg *msg)
   // else: can't satisfy user migration constraint (for this lb step),
   // so just use solution with lowest num migrations
 
-  if (_lb_args.debug() > 1) {
+  if (_lb_args.debug() > 1)
+  {
     CkPrintf("GreedyRefineLB: Lowest max_load is %f, worst max_load is %f, lowest migrations=%d\n",
              lowest_max_load, highest_max_load, lowestMigrations);
 
@@ -673,19 +814,23 @@ void GreedyRefineLB::receiveSolutions(CkReductionMsg *msg)
   }
 
   // notify PE that produced the best solution
-//  thisProxy[bestSol->pe].ApplyDecision();
+  //  thisProxy[bestSol->pe].ApplyDecision();
 }
 
-int GreedyRefineLB::get_obj_idx(int objHandleId) {
-  for(int i=0; i< stats->objData.size(); i++) {
-    if(map_obj_id[i] == objHandleId) {
+int GreedyRefineLB::get_obj_idx(int objHandleId)
+{
+  for (int i = 0; i < stats->objData.size(); i++)
+  {
+    if (map_obj_id[i] == objHandleId)
+    {
       return i;
     }
   }
   return -1;
 }
 
-int GreedyRefineLB::obj_node_map(int objId) {
+int GreedyRefineLB::obj_node_map(int objId)
+{
   return map_obid_pe[objId];
 }
 
