@@ -35,7 +35,6 @@ class Diffusion : public CBase_Diffusion
     void MaxLoad(double val);
     void AvgLoad(double val);
 
-    void spreadMeasure();
     void addObject(int id);
     void updateLoad(double val);
     void finishLB();
@@ -119,7 +118,6 @@ private:
     void InitializeObjHeap(int *obj_arr, int n, int *gain_val);
     void createCommList();
 
-    LBRealType computeDistance(std::vector<LBRealType> myCentroid, std::vector<LBRealType> oppCentroid);
 
 public:
     BaseLB::LDStats *statsData;

@@ -17,7 +17,6 @@ module Diffusion
     entry Main(CkArgMsg * m);
     entry[reductiontarget, expedited] void init();
     entry[reductiontarget, expedited] void done();
-    entry[reductiontarget, expedited] void printSpreadMeasure(double val);
   };
 #endif
   /*
@@ -47,7 +46,6 @@ module Diffusion
     entry[expedited] void proposeNbor(int nborId);
     entry[expedited] void okayNbor(int agree, int nborId);
     entry[expedited] void AtSync(void);
-    entry[expedited] void spreadMeasure();
     entry[reductiontarget] void createObjs(void);
     entry[reductiontarget] void createDistNList(void);
     entry[expedited] void ReceiveLoadInfo(int itr, double load, int node);
@@ -100,7 +98,6 @@ module Diffusion
           when PseudoLoad[itr](int itr, double load, int node) serial
           {
             my_load += load;
-            //            if(itr == ITERATIONS-1)
             DEBUGL2(("\n[Itr-%d]My [Node-%d] load after diffusion %lf (added %lf)", itr, thisIndex, my_load, load));
             int pos = findNborIdx(node);
             if (pos == -1)
@@ -111,19 +108,17 @@ module Diffusion
               toReceiveLoad[pos] += load;
           }
         }
-#if 0
-        serial {
-        CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
-        contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
-        }
-#endif
       }
 
       // Calculate the aggregate load that has to be sent.
       serial
       {
         AggregateToSend();
-
+        if (thisIndex == 0)
+        {
+          CkPrintf("-----------------------------------------------\n");
+          CkPrintf("Theoretical best (load balancing):\n");
+        }
         CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
         contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
         CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy); // LB happens on second call to AvgLoad here

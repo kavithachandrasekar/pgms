@@ -273,16 +273,6 @@ public:
     CkPrintf("Total time taken = %lf\n", CkWallTimer() - start_time);
     CkExit(0);
   }
-
-  void printSpreadMeasure(double avg)
-  {
-
-    CkPrintf("SPREAD: %lf\n", avg);
-    if (iter == 1)
-      thisProxy.done();
-
-    iter++;
-  }
 };
 #endif
 
@@ -332,7 +322,6 @@ void Diffusion::createObjs()
   createObjList();
 
   // before LB statistics
-  thisProxy[thisIndex].spreadMeasure();
   CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
   contribute(sizeof(double), &my_load, CkReduction::max_double, cbm);
   CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
@@ -504,14 +493,16 @@ void Diffusion::MaxLoad(double val)
 
   if (finished)
   {
-
     computeCommBytes(statsData, this, 0);
-    thisProxy.spreadMeasure();
+    computeSpread(statsData, nodeGroup->map_obid_pe, 0);
   }
   DEBUGF(("[Iter: %d] Max PE load = %lf\n", itr, val));
   fflush(stdout);
-  // if (finished)
-  //   mainProxy.done();
+  if (finished)
+  {
+    CkPrintf("-----------------------------------------------\n");
+    mainProxy.done();
+  }
 }
 
 void Diffusion::AvgLoad(double val)
@@ -526,8 +517,11 @@ void Diffusion::AvgLoad(double val)
   {
     if (thisIndex == 0)
     {
-      CkPrintf("\n-----------------------------------------------\n");
+      CkPrintf("-----------------------------------------------\n");
       computeCommBytes(statsData, this, 1);
+      computeSpread(statsData, nodeGroup->map_obid_pe, 1);
+      CkPrintf("-----------------------------------------------\n");
+
       if (centroid)
         thisProxy.LoadBalancingCentroids();
       else
@@ -936,57 +930,6 @@ void Diffusion::addObject(int obj_global_idx)
   int objHandle = statsData->objData[obj_global_idx].handle.objID();
   double currLoad = statsData->objData[obj_global_idx].wallTime;
   objects.push_back(CkVertex(objHandle, currLoad, statsData->objData[obj_global_idx].migratable, thisIndex));
-}
-
-LBRealType Diffusion::computeDistance(std::vector<LBRealType> a, std::vector<LBRealType> b)
-{
-  LBRealType dist = 0.0;
-  for (int i = 0; i < a.size(); i++)
-  {
-    dist += (a[i] - b[i]) * (a[i] - b[i]);
-  }
-  dist = sqrt(dist);
-  return dist;
-}
-
-void Diffusion::spreadMeasure()
-{
-  int n_objs = objects.size();
-  double spread = 0.0;
-
-  if (n_objs > 0)
-  {
-    // first compute new centroid
-    std::vector<LBRealType> myCentroid(std::vector<LBRealType>(3, 0.0));
-    for (int i = 0; i < n_objs; i++)
-    {
-      int objHandle = objects[i].getVertexId();
-      int obj_idx = get_obj_idx(objHandle); // gets global obj index
-      std::vector<LBRealType> obj_pos = statsData->objData[obj_idx].position;
-      for (int comp = 0; comp < 3; comp++)
-        myCentroid[comp] += obj_pos[comp];
-    }
-
-    for (int comp = 0; comp < 3; comp++)
-    {
-      myCentroid[comp] /= n_objs;
-    }
-
-    // then compute distance to each object
-    for (int i = 0; i < n_objs; i++)
-    {
-      int objHandle = objects[i].getVertexId();
-      int obj_idx = get_obj_idx(objHandle); // gets global obj index
-      std::vector<LBRealType> obj_pos = statsData->objData[obj_idx].position;
-
-      spread += (double)computeDistance(obj_pos, myCentroid);
-    }
-
-    // spread is the average of the norm-2 distances
-    spread /= n_objs;
-  }
-  CkCallback cbm(CkReductionTarget(Main, printSpreadMeasure), mainProxy);
-  contribute(sizeof(double), &spread, CkReduction::sum_double, cbm);
 }
 
 #include "Diffusion.def.h"
