@@ -494,7 +494,7 @@ void Diffusion::MaxLoad(double val)
   if (finished)
   {
     computeCommBytes(statsData, this, 0);
-    computeSpread(statsData, nodeGroup->map_obid_pe, 0);
+    computeSpread(statsData, this, 0);
   }
   DEBUGF(("[Iter: %d] Max PE load = %lf\n", itr, val));
   fflush(stdout);
@@ -519,7 +519,7 @@ void Diffusion::AvgLoad(double val)
     {
       CkPrintf("-----------------------------------------------\n");
       computeCommBytes(statsData, this, 1);
-      computeSpread(statsData, nodeGroup->map_obid_pe, 1);
+      computeSpread(statsData, this, 1);
       CkPrintf("-----------------------------------------------\n");
 
       if (centroid)

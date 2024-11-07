@@ -174,7 +174,9 @@ static double computeDistance(std::vector<LBRealType> a, std::vector<LBRealType>
   return dist;
 }
 
-static void computeSpread(BaseLB::LDStats *statsData, std::vector<int> map_obid_pe, int before)
+
+template <typename T>
+static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
 {
   int n_objs = statsData->objData.size();
   int n_procs = statsData->nprocs();
@@ -196,7 +198,8 @@ static void computeSpread(BaseLB::LDStats *statsData, std::vector<int> map_obid_
       for (int i = 0; i < n_objs; i++)
       {
         LDObjData &oData = statsData->objData[i];
-        int pe = map_obid_pe[i];
+        int pe = obj->obj_node_map(i);
+        
         for (int comp = 0; comp < posDim; comp++)
           centroids[pe][comp] += oData.position[comp];
         objcount[pe]++;
@@ -215,7 +218,7 @@ static void computeSpread(BaseLB::LDStats *statsData, std::vector<int> map_obid_
       for (int i = 0; i < n_objs; i++)
       {
         LDObjData &oData = statsData->objData[i];
-        int pe = map_obid_pe[i];
+        int pe = obj->obj_node_map(i);
         spread[pe] += (double)computeDistance(oData.position, centroids[pe]);
       }
 
