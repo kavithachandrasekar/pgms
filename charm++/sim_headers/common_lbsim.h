@@ -106,7 +106,7 @@ static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
 
 static void load_imb_rand_pair(BaseLB::LDStats *statsData, int factor = 5)
 {
-  
+
   int nprocs = statsData->nprocs();
 
   std::random_device rd;
@@ -222,9 +222,12 @@ static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
       // find centroid via averaging
       for (int i = 0; i < n_procs; i++)
       {
-        for (int comp = 0; comp < posDim; comp++)
+        if (objcount > 0)
         {
-          centroids[i][comp] /= objcount[i];
+          for (int comp = 0; comp < posDim; comp++)
+          {
+            centroids[i][comp] /= objcount[i];
+          }
         }
       }
 
@@ -238,7 +241,10 @@ static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
 
       // average distance for spread
       for (int i = 0; i < n_procs; i++)
-        spread[i] /= objcount[i];
+      {
+        if (objcount[i] > 0)
+          spread[i] /= objcount[i];
+      }
 
       // average spread over all procs
       avg_spread = std::accumulate(spread.begin(), spread.end(), 0.0) / n_procs;
