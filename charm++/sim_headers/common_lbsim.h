@@ -43,7 +43,7 @@ static void load_imb_by_history(BaseLB::LDStats *statsData)
   }
 }
 
-static void load_imb_rand_inject(BaseLB::LDStats *statsData, double factor = 5)
+static void load_imb_rand_inject(BaseLB::LDStats *statsData)
 {
   int nprocs = statsData->nprocs();
   // std::random_device rd;
@@ -53,6 +53,8 @@ static void load_imb_rand_inject(BaseLB::LDStats *statsData, double factor = 5)
   // int rand_pe = dis(gen);
   int rand_pe = nprocs / 2;
   CkPrintf("<LOAD IMB> Randomly injecting load on PE %d\n", rand_pe);
+  double orig_pe_load = 0;
+  double new_pe_load = 0;
 
   for (int obj = 0; obj < statsData->objData.size(); obj++)
   {
@@ -67,9 +69,13 @@ static void load_imb_rand_inject(BaseLB::LDStats *statsData, double factor = 5)
 
     if (pe == rand_pe)
     {
-      statsData->objData[obj].wallTime *= factor;
+      orig_pe_load += statsData->objData[obj].wallTime;
+      statsData->objData[obj].wallTime *= 2;
+      new_pe_load += statsData->objData[obj].wallTime;
     }
   }
+
+  CkPrintf("<LOAD IMB> PE %d load before = %lf, after = %lf\n", rand_pe, orig_pe_load, new_pe_load);
 }
 
 static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
