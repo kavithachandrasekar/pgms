@@ -91,6 +91,7 @@ private:
     int *nbors;
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
     std::vector<CkVertex> objects;
+    std::vector<CkVertex> new_objects;
 
     int neighborCount;
     bool finished;
@@ -117,7 +118,6 @@ private:
     void PseudoLoadBalancing();
     void InitializeObjHeap(int *obj_arr, int n, int *gain_val);
     void createCommList();
-
 
 public:
     BaseLB::LDStats *statsData;

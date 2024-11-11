@@ -139,6 +139,11 @@ static void load_imb_rand_pair(BaseLB::LDStats *statsData, int factor = 5)
   }
 }
 
+static void no_imb(BaseLB::LDStats *statsData)
+{
+  return;
+}
+
 template <typename T>
 static void computeCommBytes(BaseLB::LDStats *statsData, T *obj, int before)
 {
@@ -222,7 +227,7 @@ static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
       // find centroid via averaging
       for (int i = 0; i < n_procs; i++)
       {
-        if (objcount > 0)
+        if (objcount[i] > 0)
         {
           for (int comp = 0; comp < posDim; comp++)
           {

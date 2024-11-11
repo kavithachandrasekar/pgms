@@ -92,8 +92,8 @@ public:
       obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
     else
     {
-      CkPrintf("Invalid load imbalance function (ARG1 : {1,2})\n");
-      CkExit();
+      CkPrintf("No load imbalance injected\n");
+      obj_imb = (obj_imb_funcptr)no_imb;
     }
 
     centroid = atoi(m->argv[3]) == 2;
@@ -209,7 +209,7 @@ public:
       // CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
 
       map_obj_id[obj] = oData.objID();
-      map_obid_pe[obj] = statsData->from_proc[obj];
+      map_obid_pe[obj] = obj_pe;
     }
 
     for (int i = 0; i < numNodes; i++)
@@ -304,7 +304,7 @@ Diffusion::Diffusion(int node_count, std::vector<int> obj_id, std::vector<int> o
     if ((!commData.from_proc()) && (commData.recv_type() == LD_OBJ_MSG))
     {
       LDObjKey from = commData.sender;
-      int fromNode = obj_node_map(get_obj_idx(from.objID()));
+      int fromNode = map_obid_pe[(get_obj_idx(from.objID()))];
       edgeCount++;
       edge_indices.push_back(edge);
     }
@@ -612,7 +612,7 @@ void Diffusion::LoadBalancing()
       LDObjKey to = commData.receiver.get_destObj();
 
       int fromNode = thisIndex; // Node = chare here so using thisIndex
-      int toNode = obj_node_map(get_obj_idx(to.objID()));
+      int toNode = map_obid_pe[(get_obj_idx(to.objID()))];
 
       // store internal bytes in the last index pos ? -q
       if (fromNode == toNode)
@@ -679,9 +679,14 @@ void Diffusion::LoadBalancing()
   for (int i = 0; i < n_objs; i++)
   {
     obj_gain_pairs[i] = std::make_pair(gain_val[i], i);
+
+    int objHandle = objects[i].getVertexId();
+    int obj_global_idx = get_obj_idx(objHandle);
+    if (map_obid_pe[obj_global_idx] != thisIndex)
+      CkPrintf("Error creating obj_gain_pairs: Object not on this node %d: local_id = %d, actual node = %d, global_idx = %d\n", thisIndex, i, map_obid_pe[obj_global_idx], obj_global_idx);
   }
 
-  // SORT: sort the objects based on gain value (in increasing order)
+  // SORT: sort the objects based on gain value (in decreasing order)
   std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
 
   // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
@@ -715,7 +720,7 @@ void Diffusion::LoadBalancing()
     int objHandle = objects[v_id].getVertexId();
     int obj_global_idx = get_obj_idx(objHandle);
     if (map_obid_pe[obj_global_idx] != thisIndex)
-      CkAbort("Error: Object not on this node %d: v_id = %d, node = %d, global_idx = %d\n", thisIndex, v_id, nodeGroup->map_obid_pe[obj_global_idx], obj_global_idx);
+      CkAbort("Error: Object not on this node %d: local_id = %d, actual node = %d, global_idx = %d\n", thisIndex, v_id, map_obid_pe[obj_global_idx], obj_global_idx);
 
     if (!objects[v_id].isMigratable())
       CkAbort("Object in objects list must be migratable: local obj %d on pe %d\n", v_id, thisIndex);
@@ -764,7 +769,7 @@ void Diffusion::LoadBalancing()
       // diffRecv->my_load_after_transfer += currLoad;
 
       diff_array(receiverNodePE).updateLoad(currLoad);
-      thisProxy[receiverNodePE].addObject(v_id);
+      // thisProxy[receiverNodePE].addObject(obj_global_idx);
       objects.erase(objects.begin() + v_id);
 
       my_load_after_transfer -= currLoad;
@@ -851,7 +856,7 @@ void Diffusion::LoadBalancingCentroids()
   }
 
   // SORT: sort the objects based on gain value (in increasing order)
-  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
+  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::less<std::pair<double, int>>());
 
   // Migration: iteratively picking item with most gain value
   while (my_load_after_transfer > 0)
@@ -920,18 +925,19 @@ void Diffusion::LoadBalancingCentroids()
     // Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
     // diffRecv->my_load_after_transfer += currLoad;
     thisProxy[globalNeighborId].updateLoad(currLoad);
-    thisProxy[globalNeighborId].addObject(obj_global_idx);
+    // thisProxy[globalNeighborId].addObject(obj_global_idx);
   }
 
   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
   contribute(cbm);
 }
 
+// not needed because we dont use objects list again
 void Diffusion::addObject(int obj_global_idx)
 {
   int objHandle = statsData->objData[obj_global_idx].handle.objID();
   double currLoad = statsData->objData[obj_global_idx].wallTime;
-  objects.push_back(CkVertex(objHandle, currLoad, statsData->objData[obj_global_idx].migratable, thisIndex));
+  new_objects.push_back(CkVertex(objHandle, currLoad, statsData->objData[obj_global_idx].migratable, thisIndex));
 }
 
 #include "Diffusion.def.h"
