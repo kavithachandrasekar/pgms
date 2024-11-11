@@ -46,11 +46,12 @@ static void load_imb_by_history(BaseLB::LDStats *statsData)
 static void load_imb_rand_inject(BaseLB::LDStats *statsData, double factor = 5)
 {
   int nprocs = statsData->nprocs();
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> dis(0, nprocs - 1);
+  // std::random_device rd;
+  // std::mt19937 gen(rd());
+  // std::uniform_int_distribution<> dis(0, nprocs - 1);
 
-  int rand_pe = dis(gen);
+  // int rand_pe = dis(gen);
+  int rand_pe = nprocs / 2;
   CkPrintf("<LOAD IMB> Randomly injecting load on PE %d\n", rand_pe);
 
   for (int obj = 0; obj < statsData->objData.size(); obj++)
