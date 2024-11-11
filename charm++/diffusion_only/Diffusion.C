@@ -84,10 +84,10 @@ public:
     else if (fn_type == 2)
       //  randomly multiply object load by 0.8 or 1.2 (50% chance) for all objects
       obj_imb = (obj_imb_funcptr)load_imb_by_history;
-    else if (fn_type = 3)
+    else if (fn_type == 3)
       // randomly inject load on 1 PE
       obj_imb = (obj_imb_funcptr)load_imb_rand_inject;
-    else if (fn_type = 4)
+    else if (fn_type == 4)
       // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
       obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
     else
