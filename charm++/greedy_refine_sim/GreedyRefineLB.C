@@ -72,6 +72,9 @@ public:
     else if (fn_type == 4)
       // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
       obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
+    else if (fn_type == 5)
+      // all pe randomly increase or decrease by up to %20
+      obj_imb = (obj_imb_funcptr)load_imb_all_on_pe;
     else
     {
       CkPrintf("Invalid load imbalance function (ARG1 : {1,2})\n");
@@ -646,6 +649,7 @@ void GreedyRefineLB::work()
 
   // fill data structures used by algorithm
   double maxLoad = fillData(stats, objs, pobjs, procs, procHeap);
+  CkPrintf("[Before LB] Max load: %lf\n", maxLoad);
 
   // ------------ apply greedy refine algorithm --------------
 
