@@ -93,6 +93,8 @@ public:
     else if (fn_type == 5)
       // all pe randomly increase or decrease by up to %20
       obj_imb = (obj_imb_funcptr)load_imb_all_on_pe;
+    else if (fn_type == 6)
+      obj_imb = (obj_imb_funcptr)set_to_one;
     else
     {
       CkPrintf("No load imbalance injected\n");
@@ -667,15 +669,9 @@ void Diffusion::LoadBalancing()
     sum_bytes = std::accumulate(objectComms[i].begin(), objectComms[i].end(), 0);
 
     // This gives higher gain value to objects that have more within node communication
-    gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
+    // gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
+    gain_val[i] = sum_bytes - objectComms[i][SELF_IDX];
   }
-
-  // T1: create a heap based on gain values, and its position also.
-
-  //  objs.resize(n_objs);
-
-  // Creating a minheap of objects based on gain value
-  // InitializeObjHeap(obj_arr, n_objs, gain_val); // TODO: replace
 
   // For sorting: make pairs of object id and gain value
   std::vector<std::pair<double, int>> obj_gain_pairs(n_objs);
@@ -699,29 +695,30 @@ void Diffusion::LoadBalancing()
   int migrated_obj_count = 0;
   int n_count = 0;
 
+  // create neighbor list and sort based on load
+  vector<int> nbor_ids(neighborCount);
+  std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
+
+  sort(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
+       { return toSendLoad[i] > toSendLoad[j]; });
+
   while (my_load_after_transfer > 0.0)
   {
+
     if (obj_gain_pairs.empty())
-    {
       break;
-    }
-    // v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
-    //  get item with highest gain (local id in v_id)
+
+    // OBJECT SELECTION: select object with highest gain value
     auto front = obj_gain_pairs.front();
     obj_gain_pairs.erase(obj_gain_pairs.begin());
 
     v_id = front.second;
     int obj_gain = front.first;
 
-    /*If the heap becomes empty*/
-    // if (v_id == -1)
-    // { // objects.size()){//v_id==-1) {
-    //   DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
-    //   break;
-    // }
-
     int objHandle = objects[v_id].getVertexId();
     int obj_global_idx = get_obj_idx(objHandle);
+
+    // OBJECT SANITY CHECKS
     if (map_obid_pe[obj_global_idx] != thisIndex)
       CkAbort("Error: Object not on this node %d: local_id = %d, actual node = %d, global_idx = %d\n", thisIndex, v_id, map_obid_pe[obj_global_idx], obj_global_idx);
 
@@ -730,32 +727,51 @@ void Diffusion::LoadBalancing()
 
     double currLoad = objects[v_id].getVertexLoad();
 
-    // DEBUGL(("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad));
     vector<int> comm = objectComms[v_id];
     int maxComm = 0;
     int maxi = -1; // index of neighbor to send to
 
-    // sort neighbors based on toSendLoad
-    vector<int> V(neighborCount);
-    std::iota(V.begin(), V.end(), 0); // Initializing
-    sort(V.begin(), V.end(), [&](int i, int j)
-         { return toSendLoad[i] > toSendLoad[j]; });
+    // SORT NEIGHBORS
 
-    // TODO: Get the object vs communication cost ratio and work accordingly. (?)
+    // TODO: build pairs for sorting
+    std::vector<std::pair<int, int>> nbor_gain_pairs(neighborCount);
     for (int i = 0; i < neighborCount; i++)
     {
-      int l = V[i];
-      // TODO: if not underloaded continue
-      if (toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l] * 1.35)
-      {
-        if (l != SELF_IDX && (maxi == -1 || maxComm < comm[l]))
+      nbor_gain_pairs[i] = std::make_pair(comm[i], toSendLoad[i]);
+    }
+    // sort(V.begin(), V.end(), [&](int i, int j)
+    //      { return toSendLoad[i] > toSendLoad[j]; });
+
+    // sort neighbors based first on object comms, then tosendload:
+    std::sort(nbor_ids.begin(), nbor_ids.end(), [&nbor_gain_pairs](int a, int b)
+              {
+                // First compare the first element of the pairs
+                if (nbor_gain_pairs[a].first != nbor_gain_pairs[b].first)
+                  return nbor_gain_pairs[a].first > nbor_gain_pairs[b].first; // Higher priority: sort by first element
+                // If first elements are equal, compare the second element
+                return nbor_gain_pairs[a].second > nbor_gain_pairs[b].second; // Lower priority: sort by second element
+              });
+
+    // NEIGHBOR SELECTION: select most underloaded neighbor
+    for (auto &l : nbor_ids)
+    {
+      //  does this neighbor have capacity for obj?
+      // if (toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l]) //* 1.35)
+      if (currLoad <= toSendLoad[l] && l != SELF_IDX)
         {
           maxi = l;
-          maxComm = comm[l];
-        }
+        break;
       }
+      // {
+      //   if (l != SELF_IDX && (maxi == -1 || maxComm < comm[l]))
+      //   {
+      //     maxi = l;
+      //     maxComm = comm[l];
+      //   }
+      // }
     }
 
+    // NEIGHBOR SELECTION COMPLETE - MIGRATE OBJECT
     if (maxi != -1)
     {
       migrated_obj_count++;
@@ -768,37 +784,21 @@ void Diffusion::LoadBalancing()
       // update global map
       nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
 
-      // Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
-      // diffRecv->my_load_after_transfer += currLoad;
-
       diff_array(receiverNodePE).updateLoad(currLoad);
-      // thisProxy[receiverNodePE].addObject(obj_global_idx);
       objects.erase(objects.begin() + v_id);
 
       my_load_after_transfer -= currLoad;
-      //        CkPrintf("\nSending load %lf from node-%d(load %lf) to node-%d (load %lf)", currLoad, thisIndex, my_load_after_transfer, receiverNodePE,diffRecv->my_load_after_transfer);
       loadNeighbors[maxi] += currLoad;
     }
     else
     {
       DEBUGL(("[%d] maxi is negative currLoad %f \n", CkMyPe(), currLoad));
     }
+
   } // end of while
 
-  for (int i = 0; i < neighborCount; i++)
-  {
-    double to_send_total = 0.0;
-    if (toSendLoad[i] > 0.0)
-    {
-      to_send_total += toSendLoad[i];
-      DEBUGL(("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total, sendToNeighbors[i]));
-    }
-  }
-  //    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);
   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
-  contribute(cbm); // sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
-
-  // contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
+  contribute(cbm);
 }
 
 // void Diffusion::oldLoadBalancing()
