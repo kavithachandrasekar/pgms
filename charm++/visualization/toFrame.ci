@@ -1,0 +1,7 @@
+mainmodule toFrame
+{
+    mainchare Main
+    {
+        entry Main(CkArgMsg * m);
+    };
+};

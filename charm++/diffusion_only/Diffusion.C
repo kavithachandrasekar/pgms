@@ -626,15 +626,11 @@ void Diffusion::LoadBalancing()
         int toObj = statsData->getHash(to);
 
         if (fromObj != -1 && fromObj < n_objs)
-        {
           objectComms[fromObj][nborIdx] += commData.bytes;
-        }
 
         // lastKnown PE value can be wrong.
         if (toObj != -1 && toObj < n_objs)
-        {
           objectComms[toObj][nborIdx] += commData.bytes;
-        }
       }
       else
       { // External communication
@@ -674,12 +670,6 @@ void Diffusion::LoadBalancing()
     gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
   }
 
-  // CkPrintf("Before sorting in new comm LB:\n");
-  // for (int i = 0; i < n_objs; i++)
-  // {
-  //   CkPrintf("gain_val[%d] = %f\n", i, gain_val[i]);
-  // }
-
   // T1: create a heap based on gain values, and its position also.
 
   //  objs.resize(n_objs);
@@ -701,8 +691,6 @@ void Diffusion::LoadBalancing()
 
   // SORT: sort the objects based on gain value (in decreasing order)
   std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
-
-  // CkPrintf("gail val[0] = %f, gain val[1] %f, gail val[n_objs-1] = %f\n", obj_gain_pairs[0].first, obj_gain_pairs[1].first, obj_gain_pairs[n_objs - 1].first);
 
   // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
   int v_id;
@@ -1124,13 +1112,9 @@ void Diffusion::LoadBalancingCentroids()
     obj_gain_pairs[i] = std::make_pair(gain_value[i], i);
   }
 
-  // CkPrintf("Before sorting in centroid LB:\n");
-  // for (int i = 0; i < n_objs; i++)
-  // {
-  //   CkPrintf("gain_val[%d] = %f\n", i, obj_gain_pairs[i].first);
-  // }
   // SORT: sort the objects based on gain value (in increasing order)
-  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::less<std::pair<double, int>>());
+  // bug? should be in decreasing order?
+  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
 
   // Migration: iteratively picking item with most gain value
   while (my_load_after_transfer > 0)
