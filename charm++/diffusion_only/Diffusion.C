@@ -18,7 +18,7 @@
 #define DEBUGL2(x) /*CmiPrintf x*/ ;
 #define DEBUGE(x) CmiPrintf x;
 
-#define NUM_NEIGHBORS 4
+#define NUM_NEIGHBORS 2
 
 #define ITERATIONS 80
 
@@ -695,7 +695,7 @@ void Diffusion::LoadBalancing()
   }
 
   // SORT: sort the objects based on gain value (in decreasing order)
-  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end()); //, std::greater<std::pair<double, int>>());
+  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
 
   // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
   int v_id;
@@ -708,8 +708,8 @@ void Diffusion::LoadBalancing()
   vector<int> nbor_ids(neighborCount);
   std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
 
-  sort(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
-       { return toSendLoad[i] > toSendLoad[j]; });
+  std::sort(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
+            { return toSendLoad[i] > toSendLoad[j]; });
 
   while (my_load_after_transfer > 0.0)
   {
@@ -743,44 +743,26 @@ void Diffusion::LoadBalancing()
     // SORT NEIGHBORS
 
     // TODO: build pairs for sorting
-    std::vector<std::pair<int, int>> nbor_gain_pairs(neighborCount);
+    vector<int> V(neighborCount);
+    std::iota(V.begin(), V.end(), 0); // Initializing
+    std::sort(V.begin(), V.end(), [&](int i, int j)
+              { return toSendLoad[i] > toSendLoad[j]; });
+
+    // TODO: Get the object vs communication cost ratio and work accordingly. (?)
     for (int i = 0; i < neighborCount; i++)
     {
-      nbor_gain_pairs[i] = std::make_pair(comm[i], toSendLoad[i]);
-    }
-    // sort(V.begin(), V.end(), [&](int i, int j)
-    //      { return toSendLoad[i] > toSendLoad[j]; });
-
-    // sort neighbors based first on object comms, then tosendload:
-    std::sort(nbor_ids.begin(), nbor_ids.end(), [&nbor_gain_pairs](int a, int b)
-              {
-                // First compare the first element of the pairs
-                if (nbor_gain_pairs[a].first != nbor_gain_pairs[b].first)
-                  return nbor_gain_pairs[a].first > nbor_gain_pairs[b].first; // Higher priority: sort by first element
-                // If first elements are equal, compare the second element
-                return nbor_gain_pairs[a].second > nbor_gain_pairs[b].second; // Lower priority: sort by second element
-              });
-
-    // NEIGHBOR SELECTION: select most underloaded neighbor
-    for (auto &l : nbor_ids)
-    {
-      //  does this neighbor have capacity for obj?
-      // if (toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l]) //* 1.35)
-      if (currLoad <= toSendLoad[l] && l != SELF_IDX)
+      int l = V[i];
+      // TODO: if not underloaded continue
+      if (toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l] * 1.35)
       {
-        maxi = l;
-        break;
+        if (l != SELF_IDX && (maxi == -1 || maxComm < comm[l]))
+        {
+          maxi = l;
+          maxComm = comm[l];
+        }
       }
-      // {
-      //   if (l != SELF_IDX && (maxi == -1 || maxComm < comm[l]))
-      //   {
-      //     maxi = l;
-      //     maxComm = comm[l];
-      //   }
-      // }
     }
-
-    // NEIGHBOR SELECTION COMPLETE - MIGRATE OBJECT
+    // NEIGHBOR SELECTION: select most underloaded neighbor
     if (maxi != -1)
     {
       migrated_obj_count++;
