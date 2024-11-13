@@ -605,7 +605,13 @@ void Diffusion::LoadBalancing()
 
   int n_objs = objects.size();
   gain_val = new int[n_objs];
-  std::vector<std::vector<int>> objectComms(n_objs, std::vector<int>(NUM_NEIGHBORS + 2, 0));
+  std::vector<std::vector<int>> objectComms;
+
+  objectComms.resize(n_objs);
+  for (int i = 0; i < n_objs; i++)
+  {
+    objectComms[i].resize(numNodes, 0);
+  }
 
   for (int edge = 0; edge < edge_indices.size(); edge++)
   {
@@ -637,11 +643,17 @@ void Diffusion::LoadBalancing()
         int toObj = statsData->getHash(to);
 
         if (fromObj != -1 && fromObj < n_objs)
+        {
           objectComms[fromObj][nborIdx] += commData.bytes;
+          CkPrintf("Internal comm. Objectcomms goes to to %d after adding %d\n", objectComms[toObj][nborIdx], commData.bytes);
+        }
 
         // lastKnown PE value can be wrong.
         if (toObj != -1 && toObj < n_objs)
+        {
           objectComms[toObj][nborIdx] += commData.bytes;
+          CkPrintf("Internal comm. Objectcomms goes to to %d after adding %d\n", objectComms[toObj][nborIdx], commData.bytes);
+        }
       }
       else
       { // External communication
@@ -651,10 +663,25 @@ void Diffusion::LoadBalancing()
         int fromObj = statsData->getHash(from);
         // CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
         if (fromObj != -1 && fromObj < n_objs)
-          objectComms[fromObj][nborIdx] += commData.bytes;
+        {
+          int orig = objectComms[fromObj][nborIdx];
+          objectComms[fromObj][nborIdx] = orig + commData.bytes;
+          int final = objectComms[fromObj][nborIdx];
+
+          CkPrintf("External comm from %d to %d with bytes %d. Object comms from %d to %d\n", fromNode, toNode, commData.bytes, orig, final);
+        }
       }
     }
   } // end for
+
+  // print sum of all objectcomms over all objects
+  int sumtotal = std::accumulate(objectComms.begin(), objectComms.end(), 0, [](int sum, std::vector<int> &v)
+                                 { return sum + std::accumulate(v.begin(), v.end(), 0); });
+
+  int suminternal = std::accumulate(objectComms.begin(), objectComms.end(), 0, [](int sum, std::vector<int> &v)
+                                    { return sum + v[SELF_IDX]; });
+
+  CkPrintf("PE %d: Sum of all external object comms = %d, internal comms = %d\n", thisIndex, sumtotal, suminternal);
 
   // calculate the gain value, initialize the heap.
   double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
@@ -717,7 +744,7 @@ void Diffusion::LoadBalancing()
   std::iota(avail_objects.begin(), avail_objects.end(), 0); // Initializing to nbor indeces
   for (auto &neighbor : nbor_ids)
   {
-    if (toSendLoad[neighbor] == 0.0 || neighbor == thisIndex)
+    if (toSendLoad[neighbor] <= 0 || neighbor == thisIndex)
     {
       continue;
     }
@@ -732,7 +759,7 @@ void Diffusion::LoadBalancing()
 
     std::sort(obj_comm_pairs.begin(), obj_comm_pairs.end(), std::greater<std::pair<int, int>>()); // sort in decreasing order
 
-    CkPrintf("PE %d: Neighbor %d, toSendLoad %f, best object %d has comm bytes %d\n", thisIndex, neighbor, toSendLoad[neighbor], obj_comm_pairs[0].second, obj_comm_pairs[0].first);
+    CkPrintf("PE %d: Neighbor (local idx: %d, global: %d), toSendLoad %f, best object %d has comm bytes %d. Second best %d has comm bytes %d\n", thisIndex, neighbor, sendToNeighbors[neighbor], toSendLoad[neighbor], obj_comm_pairs[0].second, obj_comm_pairs[0].first, obj_comm_pairs[1].second, obj_comm_pairs[1].first);
     while (toSendLoad[neighbor] > 0)
     {
       if (obj_comm_pairs.empty())
