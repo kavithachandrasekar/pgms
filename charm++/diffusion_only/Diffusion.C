@@ -93,8 +93,8 @@ public:
     else if (fn_type == 5)
       // all pe randomly increase or decrease by up to %20
       obj_imb = (obj_imb_funcptr)load_imb_all_on_pe;
-    else if (fn_type == 6)
-      obj_imb = (obj_imb_funcptr)set_to_one;
+    // else if (fn_type == 6)
+    //   obj_imb = (obj_imb_funcptr)set_to_one;
     else
     {
       CkPrintf("No load imbalance injected\n");
@@ -616,7 +616,16 @@ void Diffusion::LoadBalancing()
       LDObjKey from = commData.sender;
       LDObjKey to = commData.receiver.get_destObj();
 
-      int fromNode = thisIndex; // Node = chare here so using thisIndex
+      int fromobj = get_obj_idx(from.objID());
+      int toobj = get_obj_idx(to.objID());
+
+      if (fromobj == -1 || toobj == -1)
+        continue;
+
+      int fromNode = obj_node_map(fromobj);
+      if (fromNode != thisIndex)
+        continue;
+
       int toNode = map_obid_pe[(get_obj_idx(to.objID()))];
 
       // store internal bytes in the last index pos ? -q
@@ -669,8 +678,8 @@ void Diffusion::LoadBalancing()
     sum_bytes = std::accumulate(objectComms[i].begin(), objectComms[i].end(), 0);
 
     // This gives higher gain value to objects that have more within node communication
-    // gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
-    gain_val[i] = sum_bytes - objectComms[i][SELF_IDX];
+    gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
+    // gain_val[i] = sum_bytes - objectComms[i][SELF_IDX];
   }
 
   // For sorting: make pairs of object id and gain value
@@ -686,7 +695,7 @@ void Diffusion::LoadBalancing()
   }
 
   // SORT: sort the objects based on gain value (in decreasing order)
-  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
+  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end()); //, std::greater<std::pair<double, int>>());
 
   // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
   int v_id;
@@ -758,8 +767,8 @@ void Diffusion::LoadBalancing()
       //  does this neighbor have capacity for obj?
       // if (toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l]) //* 1.35)
       if (currLoad <= toSendLoad[l] && l != SELF_IDX)
-        {
-          maxi = l;
+      {
+        maxi = l;
         break;
       }
       // {
