@@ -706,7 +706,7 @@ void Diffusion::LoadBalancing()
 
   // create neighbor list and sort based on load
 
-#undef NEWSTRAT
+#define NEWSTRAT
 #ifdef NEWSTRAT
   vector<int> nbor_ids(neighborCount);
   std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
@@ -717,7 +717,7 @@ void Diffusion::LoadBalancing()
   std::iota(avail_objects.begin(), avail_objects.end(), 0); // Initializing to nbor indeces
   for (auto &neighbor : nbor_ids)
   {
-    if (toSendLoad[neighbor] == 0.0)
+    if (toSendLoad[neighbor] == 0.0 || neighbor == thisIndex)
     {
       continue;
     }
@@ -727,11 +727,12 @@ void Diffusion::LoadBalancing()
     for (int obj = 0; obj < avail_objects.size(); obj++)
     {
       int avail_obj_id = avail_objects[obj];
-      obj_comm_pairs[obj] = std::make_pair(objectComms[avail_obj_id][neighbor], avail_obj_id);
+      obj_comm_pairs[obj] = std::make_pair(abs(objectComms[avail_obj_id][neighbor]), avail_obj_id);
     }
 
     std::sort(obj_comm_pairs.begin(), obj_comm_pairs.end(), std::greater<std::pair<int, int>>()); // sort in decreasing order
 
+    CkPrintf("PE %d: Neighbor %d, toSendLoad %f, best object %d has comm bytes %d\n", thisIndex, neighbor, toSendLoad[neighbor], obj_comm_pairs[0].second, obj_comm_pairs[0].first);
     while (toSendLoad[neighbor] > 0)
     {
       if (obj_comm_pairs.empty())
@@ -752,10 +753,11 @@ void Diffusion::LoadBalancing()
       int receiverNodePE = node;
 
       // update global map
-      int objHandle = objects[v_id].getVertexId();
+      int objHandle = objects[obj_id].getVertexId();
       nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
 
       diff_array(receiverNodePE).updateLoad(obj_load);
+      objects.erase(objects.begin() + obj_id);
 
       // remove object with avail_objects[i] = obj_id from avail_objects
       avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_id), avail_objects.end());
