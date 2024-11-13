@@ -631,7 +631,10 @@ void Diffusion::LoadBalancing()
     objectComms[i].resize(1000, 0);
   }
 
-  std::vector<std::pair<int, int>> objs_with_local_comm;
+  // create dictionary of a list of pairs
+  // pair: object id and comm bytes
+  std::unordered_map<int, std::vector<std::pair<int, int>>> internalObjectCommDict; // use local object indeces
+
   for (int edge = 0; edge < edge_indices.size(); edge++)
   {
 
@@ -670,7 +673,9 @@ void Diffusion::LoadBalancing()
         objectComms[fromObj][nborIdx] += commData.bytes;
         objectComms[toObj][nborIdx] += commData.bytes;
 
-        // TODO: update local comm tracker
+        // update local comm tracker
+        internalObjectCommDict[fromObj].emplace_back(toObj, commData.bytes);
+        internalObjectCommDict[toObj].emplace_back(fromObj, commData.bytes);
       }
       else
       { // External communication
@@ -689,30 +694,16 @@ void Diffusion::LoadBalancing()
     }
   } // end for
 
-  // calculate the gain value, initialize the heap.
   double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
 
-  // if (thisIndex == 0)
-  //   DEBUGL(("\nIterating through toSendLoad of size %lu", neighborCount));
-
-  // if (n_objs != objectComms.size())
-  //   DEBUGL(("\nError %d!=%d", n_objs, objectComms.size()));
-
-  obj_arr = new int[n_objs];
-
+#define NEWSTRAT
+#ifndef NEWSTRAT
+  // calculate gain value based on communication with neighbors
   for (int i = 0; i < n_objs; i++)
   {
     int sum_bytes = 0;
-    // comm bytes with all neighbors
-    // if(i > objectComms.size()-1) continue;
-    //    vector<int> comm_w_nbors = objectComms[i];
-    // compute the sume of bytes of all comms for this obj
-
     sum_bytes = std::accumulate(objectComms[i].begin(), objectComms[i].end(), 0);
-
-    // This gives higher gain value to objects that have more within node communication
-    // gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
-    gain_val[i] = sum_bytes - objectComms[i][SELF_IDX];
+    gain_val[i] = sum_bytes - objectComms[i][SELF_IDX] - objectComms[i][EXT_IDX];
   }
 
   // For sorting: make pairs of object id and gain value
@@ -729,7 +720,7 @@ void Diffusion::LoadBalancing()
 
   // SORT: sort the objects based on gain value (in decreasing order)
   std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
-
+#endif
   // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
   int v_id;
   double totalSent = 0;
@@ -739,38 +730,38 @@ void Diffusion::LoadBalancing()
 
   // create neighbor list and sort based on load
 
-#define NEWSTRAT
 #ifdef NEWSTRAT
   vector<int> nbor_ids(neighborCount);
   std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
   std::sort(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
             { return toSendLoad[i] > toSendLoad[j]; });
 
+  // list of objects I have availble (dynamic version of objects variable)
   vector<int> avail_objects(n_objs);
   std::iota(avail_objects.begin(), avail_objects.end(), 0); // Initializing to nbor indeces
+
   for (auto &neighbor : nbor_ids)
   {
-    if (toSendLoad[neighbor] <= 0 || neighbor == thisIndex)
-    {
+    // check that neighbor is valid
+    if (toSendLoad[neighbor] <= 0 || neighbor == SELF_IDX || neighbor == EXT_IDX)
       continue;
-    }
 
-    // pick object with most communication to neighbor
+    // sort objects by communication with this neighbor
     std::vector<std::pair<int, int>> obj_comm_pairs(avail_objects.size());
     for (int obj = 0; obj < avail_objects.size(); obj++)
     {
       int avail_obj_id = avail_objects[obj];
-      obj_comm_pairs[obj] = std::make_pair(abs(objectComms[avail_obj_id][neighbor]), avail_obj_id);
+      obj_comm_pairs[obj] = std::make_pair(objectComms[avail_obj_id][neighbor], avail_obj_id);
     }
-
     std::sort(obj_comm_pairs.begin(), obj_comm_pairs.end(), std::greater<std::pair<int, int>>()); // sort in decreasing order
 
-    // CkPrintf("PE %d: Neighbor (local idx: %d, global: %d), toSendLoad %f, best object %d has comm bytes %d. Second best %d has comm bytes %d\n", thisIndex, neighbor, sendToNeighbors[neighbor], toSendLoad[neighbor], obj_comm_pairs[0].second, obj_comm_pairs[0].first, obj_comm_pairs[1].second, obj_comm_pairs[1].first);
+    // send objects to neighbor until exhausted
     while (toSendLoad[neighbor] > 0)
     {
       if (obj_comm_pairs.empty())
         break;
 
+      // pop first object
       auto front = obj_comm_pairs.front();
       obj_comm_pairs.erase(obj_comm_pairs.begin());
 
@@ -778,25 +769,29 @@ void Diffusion::LoadBalancing()
       int obj_comm = front.first;
       int obj_load = objects[obj_id].getVertexLoad();
 
+      // check that neighbor can receive this object
+      if (obj_load > toSendLoad[neighbor])
+        continue;
+
+      // object has been chosen! begin migration process
       migrated_obj_count++;
-      int node = sendToNeighbors[neighbor];
+
+      int receiverNodePE = sendToNeighbors[neighbor];
       toSendLoad[neighbor] -= obj_load;
       totalSent += obj_load;
-
-      int receiverNodePE = node;
 
       // update global map
       int objHandle = objects[obj_id].getVertexId();
       nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
 
-      diff_array(receiverNodePE).updateLoad(obj_load);
+      diff_array(receiverNodePE).updateLoad(obj_load); // this only updates load_after_transfer (no race condition)
       // objects.erase(objects.begin() + obj_id);
 
       // remove object with avail_objects[i] = obj_id from avail_objects
       avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_id), avail_objects.end());
 
       my_load_after_transfer -= obj_load;
-      loadNeighbors[neighbor] += obj_load;
+      loadNeighbors[neighbor] += obj_load; // TODO: what is this used for?
     }
   }
 
