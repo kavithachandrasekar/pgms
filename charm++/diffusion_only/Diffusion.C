@@ -738,7 +738,8 @@ void Diffusion::LoadBalancing()
 
   // list of objects I have availble (dynamic version of objects variable)
   vector<int> avail_objects(n_objs);
-  std::iota(avail_objects.begin(), avail_objects.end(), 0); // Initializing to nbor indeces
+  std::iota(avail_objects.begin(), avail_objects.end(), 0);
+  // j in avail_objects is the local index (into "objects") of an available object
 
   for (auto &neighbor : nbor_ids)
   {
@@ -746,35 +747,66 @@ void Diffusion::LoadBalancing()
     if (toSendLoad[neighbor] <= 0 || neighbor == SELF_IDX || neighbor == EXT_IDX)
       continue;
 
-    // sort objects by communication with this neighbor
-    std::vector<std::pair<int, int>> obj_comm_pairs(avail_objects.size());
-    for (int obj = 0; obj < avail_objects.size(); obj++)
+    // store object comm with this neighbor in prio queue
+    std::vector<std::pair<int, int>> obj_comm_pairs;
+    for (int local_avail_obj : avail_objects)
     {
-      int avail_obj_id = avail_objects[obj];
-      obj_comm_pairs[obj] = std::make_pair(objectComms[avail_obj_id][neighbor], avail_obj_id);
+      assert(local_avail_obj >= 0 && local_avail_obj < n_objs);
+      obj_comm_pairs.push_back(std::make_pair(objectComms[local_avail_obj][neighbor], local_avail_obj));
     }
-    std::sort(obj_comm_pairs.begin(), obj_comm_pairs.end(), std::greater<std::pair<int, int>>()); // sort in decreasing order
 
     // send objects to neighbor until exhausted
+    CkPrintf("Proc %d wants to send load=%f to neighbor %d\n", thisIndex, toSendLoad[neighbor], neighbor);
     while (toSendLoad[neighbor] > 0)
     {
+
       if (obj_comm_pairs.empty())
         break;
 
-      // pop first object
-      auto front = obj_comm_pairs.front();
-      obj_comm_pairs.erase(obj_comm_pairs.begin());
+      // pop first object`
+      auto chosen = std::max_element(obj_comm_pairs.begin(), obj_comm_pairs.end());
+      std::pair<int, int> max_pair = *chosen;
 
-      int obj_id = front.second;
-      int obj_comm = front.first;
-      int obj_load = objects[obj_id].getVertexLoad();
+      int obj_id = max_pair.second;
+      int obj_comm = max_pair.first;
+
+      obj_comm_pairs.erase(chosen);
+
+      if (obj_id < 0 || obj_id >= n_objs)
+        CkAbort("Error: obj_id out of bounds: %d. Cannot get load\n", obj_id);
+      double obj_load = objects[obj_id].getVertexLoad();
 
       // check that neighbor can receive this object
       if (obj_load > toSendLoad[neighbor])
         continue;
 
+      CkPrintf("Proc %d Migrating obj (localidx %d) with load %f to proc %d (comm bytes %d)\n", thisIndex, obj_id, obj_load, sendToNeighbors[neighbor], obj_comm);
       // object has been chosen! begin migration process
       migrated_obj_count++;
+
+      // update external communication for all related objects
+      for (auto &comm_pair : internalObjectCommDict[obj_id])
+      {
+        int related_obj_id = comm_pair.first;
+        int comm = comm_pair.second;
+
+        // find local object id in avail_objects
+        auto findobj = std::find_if(obj_comm_pairs.begin(), obj_comm_pairs.end(),
+                                    [related_obj_id](const std::pair<int, int> &element)
+                                    { return element.second == related_obj_id; });
+
+        if (findobj != obj_comm_pairs.end()) // object is still available
+        {
+          int index_into_pairs = std::distance(obj_comm_pairs.begin(), findobj);
+
+          objectComms[related_obj_id][neighbor] += comm;
+          objectComms[related_obj_id][SELF_IDX] -= comm;
+
+          obj_comm_pairs[index_into_pairs].first += comm;
+          assert(obj_comm_pairs[index_into_pairs].second == related_obj_id);
+        }
+      }
+      internalObjectCommDict.erase(obj_id);
 
       int receiverNodePE = sendToNeighbors[neighbor];
       toSendLoad[neighbor] -= obj_load;
@@ -1234,7 +1266,7 @@ void Diffusion::LoadBalancingCentroids()
     for (int n = 0; n < neighborCount; n++)
     {
       int local_n_id = neighbor_dist_pairs[n].second;
-      if (toSendLoad[local_n_id] > 0.0 && currLoad <= toSendLoad[local_n_id] * 1.35)
+      if (toSendLoad[local_n_id] > 0.0 && currLoad <= toSendLoad[local_n_id])
       {
         localToSendNeighbor = local_n_id;
         break;
