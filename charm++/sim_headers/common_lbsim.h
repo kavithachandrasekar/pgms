@@ -170,8 +170,19 @@ static void computeCommBytes(BaseLB::LDStats *statsData, T *obj, int before)
       int toobj = obj->get_obj_idx(to.objID());
       if (fromobj == -1 || toobj == -1)
         continue;
-      int fromNode = obj->obj_node_map(fromobj);
-      int toNode = obj->obj_node_map(toobj);
+
+      int fromNode;
+      int toNode;
+      if (!before) // finished, update final map
+      {
+        fromNode = obj->obj_node_map_updated(fromobj);
+        toNode = obj->obj_node_map_updated(toobj);
+      }
+      else
+      {
+        fromNode = obj->obj_node_map(fromobj);
+        toNode = obj->obj_node_map(toobj);
+      }
 
       // store internal bytes in the last index pos ? -q
       if (fromNode == toNode)

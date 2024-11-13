@@ -43,6 +43,7 @@ class Diffusion : public CBase_Diffusion
                   double *toRecvLd, void (*func)(void *), void *obj);
 
     int obj_node_map(int objId);
+    int obj_node_map_updated(int objId);
 
     void createObjs();
     void createObjList();
@@ -63,6 +64,7 @@ class Diffusion : public CBase_Diffusion
     bool obj_on_node(int objId);
     void LoadBalancing();
     void LoadBalancingCentroids();
+    int get_local_obj_idx(int objHandleId);
     int get_obj_idx(int objHandleId);
     std::vector<LBRealType> getCentroid(int pe);
 

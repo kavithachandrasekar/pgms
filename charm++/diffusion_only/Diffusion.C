@@ -432,7 +432,15 @@ int Diffusion::get_obj_idx(int objHandleId)
 int Diffusion::obj_node_map(int objId)
 {
 
+  // return nodeGroup->map_obid_pe[objId];
+  return map_obid_pe[objId];
+}
+
+int Diffusion::obj_node_map_updated(int objId)
+{
+
   return nodeGroup->map_obid_pe[objId];
+  // return map_obid_pe[objId];
 }
 
 void Diffusion::startDiffusion()
@@ -593,6 +601,16 @@ void Diffusion::PseudoLoadBalancing()
   }
 }
 
+int Diffusion::get_local_obj_idx(int objHandleId)
+{
+  for (int i = 0; i < objects.size(); i++)
+  {
+    if (objects[i].getVertexId() == objHandleId)
+      return i;
+  }
+  return -1;
+}
+
 void Diffusion::LoadBalancing()
 {
   //  Iterate over the comm data and for each object, store its comm bytes
@@ -610,9 +628,10 @@ void Diffusion::LoadBalancing()
   objectComms.resize(n_objs);
   for (int i = 0; i < n_objs; i++)
   {
-    objectComms[i].resize(numNodes, 0);
+    objectComms[i].resize(1000, 0);
   }
 
+  std::vector<std::pair<int, int>> objs_with_local_comm;
   for (int edge = 0; edge < edge_indices.size(); edge++)
   {
 
@@ -622,66 +641,53 @@ void Diffusion::LoadBalancing()
       LDObjKey from = commData.sender;
       LDObjKey to = commData.receiver.get_destObj();
 
-      int fromobj = get_obj_idx(from.objID());
-      int toobj = get_obj_idx(to.objID());
+      int fromObjID = from.objID(); // Vertex ID of an object
+      int toObjID = to.objID();
 
-      if (fromobj == -1 || toobj == -1)
-        continue;
+      int fromobj_globalidx = get_obj_idx(fromObjID); // gets global index of object
+      int toobj_globalidx = get_obj_idx(toObjID);
 
-      int fromNode = obj_node_map(fromobj);
+      if (fromobj_globalidx == -1 || toobj_globalidx == -1)
+        CkAbort("Error: getting global index of objects on edge %d failed.\n", edge);
+
+      int fromNode = obj_node_map(fromobj_globalidx);
       if (fromNode != thisIndex)
-        continue;
+        continue; // only consider communication from this node (this seems like a bug?)
 
-      int toNode = map_obid_pe[(get_obj_idx(to.objID()))];
+      int toNode = map_obid_pe[toobj_globalidx]; // use local map (initial state) to find global pe index
 
       // store internal bytes in the last index pos ? -q
       if (fromNode == toNode)
       {
         // internal comm
         int nborIdx = SELF_IDX;
-        int fromObj = statsData->getHash(from);
-        int toObj = statsData->getHash(to);
+        int fromObj = get_local_obj_idx(fromObjID);
+        int toObj = get_local_obj_idx(toObjID); // getting local indeces for objects (using local map)
 
-        if (fromObj != -1 && fromObj < n_objs)
-        {
-          objectComms[fromObj][nborIdx] += commData.bytes;
-          CkPrintf("Internal comm. Objectcomms goes to to %d after adding %d\n", objectComms[toObj][nborIdx], commData.bytes);
-        }
+        if (fromObj == -1 || toObj == -1 || fromObj >= n_objs || toObj >= n_objs)
+          CkAbort("Error: internal edge %d but at least one object cannot be found.\n", edge);
 
-        // lastKnown PE value can be wrong.
-        if (toObj != -1 && toObj < n_objs)
-        {
-          objectComms[toObj][nborIdx] += commData.bytes;
-          CkPrintf("Internal comm. Objectcomms goes to to %d after adding %d\n", objectComms[toObj][nborIdx], commData.bytes);
-        }
+        objectComms[fromObj][nborIdx] += commData.bytes;
+        objectComms[toObj][nborIdx] += commData.bytes;
+
+        // TODO: update local comm tracker
       }
       else
       { // External communication
+        // fromObj is on this node, toObj is on another node
+        // TODO: should we also consider the edges where toObj is on this node?
         int nborIdx = findNborIdx(toNode);
         if (nborIdx == -1)
           nborIdx = EXT_IDX; // Store in last index if it is external bytes going to non-immediate neighbors
-        int fromObj = statsData->getHash(from);
-        // CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
+
+        int fromObj = get_local_obj_idx(fromObjID);
         if (fromObj != -1 && fromObj < n_objs)
         {
-          int orig = objectComms[fromObj][nborIdx];
-          objectComms[fromObj][nborIdx] = orig + commData.bytes;
-          int final = objectComms[fromObj][nborIdx];
-
-          CkPrintf("External comm from %d to %d with bytes %d. Object comms from %d to %d\n", fromNode, toNode, commData.bytes, orig, final);
+          objectComms[fromObj][nborIdx] += commData.bytes;
         }
       }
     }
   } // end for
-
-  // print sum of all objectcomms over all objects
-  int sumtotal = std::accumulate(objectComms.begin(), objectComms.end(), 0, [](int sum, std::vector<int> &v)
-                                 { return sum + std::accumulate(v.begin(), v.end(), 0); });
-
-  int suminternal = std::accumulate(objectComms.begin(), objectComms.end(), 0, [](int sum, std::vector<int> &v)
-                                    { return sum + v[SELF_IDX]; });
-
-  CkPrintf("PE %d: Sum of all external object comms = %d, internal comms = %d\n", thisIndex, sumtotal, suminternal);
 
   // calculate the gain value, initialize the heap.
   double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
@@ -759,7 +765,7 @@ void Diffusion::LoadBalancing()
 
     std::sort(obj_comm_pairs.begin(), obj_comm_pairs.end(), std::greater<std::pair<int, int>>()); // sort in decreasing order
 
-    CkPrintf("PE %d: Neighbor (local idx: %d, global: %d), toSendLoad %f, best object %d has comm bytes %d. Second best %d has comm bytes %d\n", thisIndex, neighbor, sendToNeighbors[neighbor], toSendLoad[neighbor], obj_comm_pairs[0].second, obj_comm_pairs[0].first, obj_comm_pairs[1].second, obj_comm_pairs[1].first);
+    // CkPrintf("PE %d: Neighbor (local idx: %d, global: %d), toSendLoad %f, best object %d has comm bytes %d. Second best %d has comm bytes %d\n", thisIndex, neighbor, sendToNeighbors[neighbor], toSendLoad[neighbor], obj_comm_pairs[0].second, obj_comm_pairs[0].first, obj_comm_pairs[1].second, obj_comm_pairs[1].first);
     while (toSendLoad[neighbor] > 0)
     {
       if (obj_comm_pairs.empty())
@@ -784,7 +790,7 @@ void Diffusion::LoadBalancing()
       nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
 
       diff_array(receiverNodePE).updateLoad(obj_load);
-      objects.erase(objects.begin() + obj_id);
+      // objects.erase(objects.begin() + obj_id);
 
       // remove object with avail_objects[i] = obj_id from avail_objects
       avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_id), avail_objects.end());
@@ -1259,7 +1265,7 @@ void Diffusion::LoadBalancingCentroids()
 
     // Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
     // diffRecv->my_load_after_transfer += currLoad;
-    thisProxy[globalNeighborId].updateLoad(currLoad);
+    thisProxy[globalNeighborId].updateLoad(currLoad); // TODO: objects should be buffered because this could arrive before LoadBalancingCentroids
     // thisProxy[globalNeighborId].addObject(obj_global_idx);
   }
 
