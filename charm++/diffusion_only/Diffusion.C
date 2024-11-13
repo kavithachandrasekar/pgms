@@ -705,14 +705,69 @@ void Diffusion::LoadBalancing()
   int n_count = 0;
 
   // create neighbor list and sort based on load
+
+#undef NEWSTRAT
+#ifdef NEWSTRAT
   vector<int> nbor_ids(neighborCount);
   std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
   std::sort(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
             { return toSendLoad[i] > toSendLoad[j]; });
 
+  vector<int> avail_objects(n_objs);
+  std::iota(avail_objects.begin(), avail_objects.end(), 0); // Initializing to nbor indeces
+  for (auto &neighbor : nbor_ids)
+  {
+    if (toSendLoad[neighbor] == 0.0)
+    {
+      continue;
+    }
+
+    // pick object with most communication to neighbor
+    std::vector<std::pair<int, int>> obj_comm_pairs(avail_objects.size());
+    for (int obj = 0; obj < avail_objects.size(); obj++)
+    {
+      int avail_obj_id = avail_objects[obj];
+      obj_comm_pairs[obj] = std::make_pair(objectComms[avail_obj_id][neighbor], avail_obj_id);
+    }
+
+    std::sort(obj_comm_pairs.begin(), obj_comm_pairs.end(), std::greater<std::pair<int, int>>()); // sort in decreasing order
+
+    while (toSendLoad[neighbor] > 0)
+    {
+      if (obj_comm_pairs.empty())
+        break;
+
+      auto front = obj_comm_pairs.front();
+      obj_comm_pairs.erase(obj_comm_pairs.begin());
+
+      int obj_id = front.second;
+      int obj_comm = front.first;
+      int obj_load = objects[obj_id].getVertexLoad();
+
+      migrated_obj_count++;
+      int node = sendToNeighbors[neighbor];
+      toSendLoad[neighbor] -= obj_load;
+      totalSent += obj_load;
+
+      int receiverNodePE = node;
+
+      // update global map
+      int objHandle = objects[v_id].getVertexId();
+      nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
+
+      diff_array(receiverNodePE).updateLoad(obj_load);
+
+      // remove object with avail_objects[i] = obj_id from avail_objects
+      avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_id), avail_objects.end());
+
+      my_load_after_transfer -= obj_load;
+      loadNeighbors[neighbor] += obj_load;
+    }
+  }
+
+#else
   while (my_load_after_transfer > 0.0)
   {
-
     if (obj_gain_pairs.empty())
       break;
 
@@ -745,7 +800,7 @@ void Diffusion::LoadBalancing()
     vector<int> V(neighborCount);
     std::iota(V.begin(), V.end(), 0); // Initializing
     std::sort(V.begin(), V.end(), [&](int i, int j)
-              { return toSendLoad[i] > toSendLoad[j]; });
+              { return abs(comm[i]) > abs(comm[j]); });
 
     // TODO: Get the object vs communication cost ratio and work accordingly. (?)
     for (int i = 0; i < neighborCount; i++)
@@ -754,14 +809,16 @@ void Diffusion::LoadBalancing()
       // TODO: if not underloaded continue
       if (toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l] * 1.35)
       {
-        if (l != SELF_IDX && (maxi == -1 || maxComm < comm[l]))
+        if (l != SELF_IDX) // && (maxi == -1 || maxComm < comm[l]))
         {
           maxi = l;
           maxComm = comm[l];
+          break;
         }
       }
     }
-    // NEIGHBOR SELECTION: select most underloaded neighbor
+
+    // object/neighbor pair decided
     if (maxi != -1)
     {
       migrated_obj_count++;
@@ -786,6 +843,7 @@ void Diffusion::LoadBalancing()
     }
 
   } // end of while
+#endif // ORIG
 
   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
   contribute(cbm);
