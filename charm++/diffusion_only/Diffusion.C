@@ -304,7 +304,7 @@ void Diffusion::startDiffusion() {
 }
 
 int Diffusion::findNborIdx(int node) {
-  for(int i=0;i<neighborCount;i++)
+  for(int i=0;i<sendToNeighbors.size();i++)
     if(sendToNeighbors[i] == node)
       return i;
 //  for(int i=0;i<neighborCount;i++)
@@ -457,13 +457,16 @@ void Diffusion::LoadBalancing() {
     LDCommData &commData = statsData->commData[edge_indices[edge]];
     if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
       LDObjKey from = commData.sender;
-
       LDObjKey to = commData.receiver.get_destObj();
 
-      int fromNode = thisIndex;//Node = chare here so using thisIndex
+      int fromobj = get_obj_idx(from.objID());
+      int toobj = get_obj_idx(to.objID());
 
-      int toNode = obj_node_map(get_obj_idx(to.objID()));
-//      CkPrintf("\n[Edge] fromNode = %d, toNode = %d", fromNode, toNode);
+      if(fromobj == -1 || toobj == -1) continue;
+
+      int fromNode = obj_node_map(fromobj);
+      if(fromNode != thisIndex) continue;
+      int toNode = obj_node_map(toobj);
 
       //store internal bytes in the last index pos ? -q
       if(fromNode == toNode) {
