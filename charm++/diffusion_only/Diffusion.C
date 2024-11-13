@@ -678,8 +678,8 @@ void Diffusion::LoadBalancing()
     sum_bytes = std::accumulate(objectComms[i].begin(), objectComms[i].end(), 0);
 
     // This gives higher gain value to objects that have more within node communication
-    gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
-    // gain_val[i] = sum_bytes - objectComms[i][SELF_IDX];
+    // gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
+    gain_val[i] = sum_bytes - objectComms[i][SELF_IDX];
   }
 
   // For sorting: make pairs of object id and gain value
@@ -707,7 +707,6 @@ void Diffusion::LoadBalancing()
   // create neighbor list and sort based on load
   vector<int> nbor_ids(neighborCount);
   std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
-
   std::sort(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
             { return toSendLoad[i] > toSendLoad[j]; });
 
