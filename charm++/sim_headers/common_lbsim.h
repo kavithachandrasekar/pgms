@@ -258,7 +258,7 @@ static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
       for (int i = 0; i < n_objs; i++)
       {
         LDObjData &oData = statsData->objData[i];
-        int pe = obj->obj_node_map(i);
+        int pe = obj->obj_node_map_updated(i);
         spread[pe] += (double)computeDistance(oData.position, centroids[pe]);
       }
 
