@@ -20,6 +20,21 @@ static void load_imb_by_pe(BaseLB::LDStats *statsData)
     statsData->objData[obj].wallTime = load;
   }
 }
+static void load_setconst(BaseLB::LDStats *statsData)
+{
+  for (int obj = 0; obj < statsData->objData.size(); obj++)
+  {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable)
+    {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+    statsData->objData[obj].wallTime = 1.0;
+  }
+}
 
 static void load_imb_by_history(BaseLB::LDStats *statsData)
 {
@@ -52,9 +67,7 @@ static void load_imb_rand_inject(BaseLB::LDStats *statsData)
 
   // int rand_pe = dis(gen);
   int rand_pe = nprocs / 2;
-  CkPrintf("<LOAD IMB> Randomly injecting load on PE %d\n", rand_pe);
-  double orig_pe_load = 0;
-  double new_pe_load = 0;
+  CkPrintf("<LOAD IMB> Doubling load on PE %d\n", rand_pe);
 
   for (int obj = 0; obj < statsData->objData.size(); obj++)
   {
@@ -69,13 +82,13 @@ static void load_imb_rand_inject(BaseLB::LDStats *statsData)
 
     if (pe == rand_pe)
     {
-      orig_pe_load += statsData->objData[obj].wallTime;
-      statsData->objData[obj].wallTime *= 2;
-      new_pe_load += statsData->objData[obj].wallTime;
+      statsData->objData[obj].wallTime = 2.0;
+    }
+    else
+    {
+      statsData->objData[obj].wallTime = 1.0;
     }
   }
-
-  CkPrintf("<LOAD IMB> PE %d load before = %lf, after = %lf\n", rand_pe, orig_pe_load, new_pe_load);
 }
 
 static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
@@ -83,7 +96,7 @@ static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
   CkPrintf("<LOAD IMB> All pe randomly increase or decrease by up to %20 \n");
 
   int nprocs = statsData->nprocs();
-  std::vector<int> scale(nprocs, 0);
+  std::vector<double> scale(nprocs, 0);
 
   // fill scale with rand values between .8 and 1.2
   std::random_device rd;
@@ -106,7 +119,8 @@ static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
       continue;
     }
 
-    double load = statsData->objData[obj].wallTime * scale[pe];
+    // double load = statsData->objData[obj].wallTime * scale[pe];
+    double load = 1.0 * scale[pe];
     statsData->objData[obj].wallTime = load;
   }
 }
