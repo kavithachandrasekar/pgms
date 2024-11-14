@@ -696,8 +696,8 @@ void Diffusion::LoadBalancing()
 
   double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
 
-#define NEWSTRAT
-#ifndef NEWSTRAT
+#define NEWSTRAT2
+#ifdef ORIGSTRAT
   // calculate gain value based on communication with neighbors
   for (int i = 0; i < n_objs; i++)
   {
@@ -730,7 +730,105 @@ void Diffusion::LoadBalancing()
 
   // create neighbor list and sort based on load
 
-#ifdef NEWSTRAT
+#ifdef NEWSTRAT2
+  vector<int> nbor_ids(neighborCount);
+  std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
+
+  vector<int> avail_objects(n_objs);
+  std::iota(avail_objects.begin(), avail_objects.end(), 0);
+
+  while (my_load_after_transfer > 0)
+  {
+    // pick the best neighbor
+    auto nbor_iterator = std::max_element(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
+                                          { return toSendLoad[i] > toSendLoad[j]; });
+
+    int neighbor = *nbor_iterator;
+    if (toSendLoad[neighbor] <= 0)
+      break;
+
+    assert(neighbor != SELF_IDX && neighbor != EXT_IDX); // this should be covered by the above check
+
+    if (avail_objects.empty())
+      break; // stop when no more objects can be sent
+
+    // sort objects
+    std::vector<std::pair<int, int>> obj_comm_pairs;
+    for (int local_avail_obj : avail_objects)
+    {
+      assert(local_avail_obj >= 0 && local_avail_obj < n_objs);
+      obj_comm_pairs.push_back(std::make_pair(objectComms[local_avail_obj][neighbor], local_avail_obj));
+    }
+    std::sort(obj_comm_pairs.begin(), obj_comm_pairs.end(), std::greater<std::pair<int, int>>());
+
+    // pick best object that fits the load
+    int best_obj_comm = -1;
+    int obj_id = -1;
+    int obj_comm = -1;
+    double obj_load = -1;
+
+    for (auto &obj_comm_pair : obj_comm_pairs)
+    {
+      obj_id = obj_comm_pair.second;
+      obj_comm = obj_comm_pair.first;
+      obj_load = objects[obj_id].getVertexLoad();
+
+      if (obj_load <= toSendLoad[neighbor])
+      {
+        best_obj_comm = obj_comm;
+        v_id = obj_id;
+        break;
+      }
+    }
+
+    if (best_obj_comm == -1)
+      break; // no object fits the load for the neighbor with highest capacity... algorithm over
+
+    // best object and neighbor chosen! do migration:
+    migrated_obj_count++;
+
+    // update external communication for all related objects
+    for (auto &comm_pair : internalObjectCommDict[obj_id])
+    {
+      int related_obj_id = comm_pair.first;
+      int comm = comm_pair.second;
+
+      // find local object id in avail_objects
+      auto findobj = std::find_if(obj_comm_pairs.begin(), obj_comm_pairs.end(),
+                                  [related_obj_id](const std::pair<int, int> &element)
+                                  { return element.second == related_obj_id; });
+
+      if (findobj != obj_comm_pairs.end()) // object is still available
+      {
+        int index_into_pairs = std::distance(obj_comm_pairs.begin(), findobj);
+
+        objectComms[related_obj_id][neighbor] += comm;
+        objectComms[related_obj_id][SELF_IDX] -= comm;
+
+        obj_comm_pairs[index_into_pairs].first += comm;
+        assert(obj_comm_pairs[index_into_pairs].second == related_obj_id);
+      }
+    }
+    internalObjectCommDict.erase(obj_id);
+
+    int receiverNodePE = sendToNeighbors[neighbor];
+    toSendLoad[neighbor] -= obj_load;
+    totalSent += obj_load;
+
+    // update global map
+    int objHandle = objects[obj_id].getVertexId();
+    nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
+
+    diff_array(receiverNodePE).updateLoad(obj_load); // this only updates load_after_transfer (no race condition)
+    // objects.erase(objects.begin() + obj_id);
+
+    // remove object with avail_objects[i] = obj_id from avail_objects
+    avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_id), avail_objects.end());
+
+    my_load_after_transfer -= obj_load;
+    loadNeighbors[neighbor] += obj_load; // TODO: what is this used for?
+  }
+#elif defined(NEWSTRAT1)
   vector<int> nbor_ids(neighborCount);
   std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
   std::sort(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
@@ -756,7 +854,6 @@ void Diffusion::LoadBalancing()
     }
 
     // send objects to neighbor until exhausted
-    CkPrintf("Proc %d wants to send load=%f to neighbor %d\n", thisIndex, toSendLoad[neighbor], neighbor);
     while (toSendLoad[neighbor] > 0)
     {
 
@@ -780,7 +877,6 @@ void Diffusion::LoadBalancing()
       if (obj_load > toSendLoad[neighbor])
         continue;
 
-      CkPrintf("Proc %d Migrating obj (localidx %d) with load %f to proc %d (comm bytes %d)\n", thisIndex, obj_id, obj_load, sendToNeighbors[neighbor], obj_comm);
       // object has been chosen! begin migration process
       migrated_obj_count++;
 
@@ -827,7 +923,7 @@ void Diffusion::LoadBalancing()
     }
   }
 
-#else
+#elif defined(ORIGSTRAT)
   while (my_load_after_transfer > 0.0)
   {
     if (obj_gain_pairs.empty())
@@ -911,260 +1007,6 @@ void Diffusion::LoadBalancing()
   contribute(cbm);
 }
 
-// void Diffusion::oldLoadBalancing()
-// {
-//   CkPrintf("oldLoadBalancing\n");
-//   //  if(thisIndex%4==0)
-//   { // Overloaded PEs in this dataset
-//     for (int i = 0; i < neighborCount; i++)
-//     {
-//       if (toSendLoad[i] > 0.0)
-//       {
-//         // CkPrintf("\nNode-%d to send load %lf (%d objects) to node-%d", thisIndex, toSendLoad[i], (int)(toSendLoad[i]/0.1), sendToNeighbors[i]);
-//       }
-//     }
-//   }
-//   int n_objs = objects.size();
-//   //  if(thisIndex == 0)
-//   DEBUGL(("[SimNode#%d] GRD: Load Balancing w objects size = %d \n", thisIndex, n_objs));
-//   fflush(stdout);
-//   //  Iterate over the comm data and for each object, store its comm bytes
-//   //  to other neighbor nodes and own node.
-
-//   // objectComms maintains the comm bytes for each object on this node
-//   // with the neighboring node
-//   // we also maintain comm within this node and comm bytes outside
-//   //(of this node and neighboring nodes)
-
-//   // objectComms.reserve(n_objs);
-//   objectComms.resize(n_objs);
-
-//   //  if(gain_val != NULL)
-//   //      delete[] gain_val;
-//   gain_val = new int[n_objs];
-//   memset(gain_val, -1, n_objs);
-
-//   for (int i = 0; i < n_objs; i++)
-//   {
-//     objectComms[i].resize(NUM_NEIGHBORS + 2);
-//     for (int j = 0; j < NUM_NEIGHBORS + 2; j++)
-//       objectComms[i][j] = 0;
-//   }
-
-//   int obj = 0;
-// #if 1
-//   // if(thisIndex==0)
-//   {
-//     for (int edge = 0; edge < edge_indices.size() /*statsData->commData.size()*/; edge++)
-//     {
-
-//       LDCommData &commData = statsData->commData[edge_indices[edge]];
-//       if ((!commData.from_proc()) && (commData.recv_type() == LD_OBJ_MSG))
-//       {
-//         LDObjKey from = commData.sender;
-
-//         LDObjKey to = commData.receiver.get_destObj();
-
-//         int fromNode = thisIndex; // Node = chare here so using thisIndex
-
-//         int toNode = obj_node_map(get_obj_idx(to.objID()));
-//         //      CkPrintf("\n[Edge] fromNode = %d, toNode = %d", fromNode, toNode);
-
-//         // store internal bytes in the last index pos ? -q
-//         if (fromNode == toNode)
-//         {
-//           int nborIdx = SELF_IDX;
-//           int fromObj = statsData->getHash(from);
-//           int toObj = statsData->getHash(to);
-//           // DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, statsData->n_objs));
-//           if (fromObj != -1 && fromObj < n_objs)
-//             objectComms[fromObj][nborIdx] += commData.bytes;
-//           // lastKnown PE value can be wrong.
-//           if (toObj != -1 && toObj < n_objs)
-//             objectComms[toObj][nborIdx] += commData.bytes;
-//         }
-//         else
-//         { // External communication
-//           int nborIdx = findNborIdx(toNode);
-//           if (nborIdx == -1)
-//             nborIdx = EXT_IDX; // Store in last index if it is external bytes going to non-immediate neighbors
-//           int fromObj = statsData->getHash(from);
-//           // CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
-//           if (fromObj != -1 && fromObj < n_objs)
-//             objectComms[fromObj][nborIdx] += commData.bytes;
-//           obj++;
-//         }
-//       }
-//     } // end for
-//   }
-// #endif
-
-//   // calculate the gain value, initialize the heap.
-//   double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
-
-//   if (thisIndex == 0)
-//     DEBUGL(("\nIterating through toSendLoad of size %lu", neighborCount));
-
-//   if (n_objs != objectComms.size())
-//     DEBUGL(("\nError %d!=%d", n_objs, objectComms.size()));
-
-//   obj_arr = new int[n_objs];
-
-//   for (int i = 0; i < n_objs; i++)
-//   {
-//     int sum_bytes = 0;
-//     // comm bytes with all neighbors
-//     // if(i > objectComms.size()-1) continue;
-//     //    vector<int> comm_w_nbors = objectComms[i];
-//     // compute the sume of bytes of all comms for this obj
-//     for (int j = 0; j < objectComms[i].size(); j++)
-//       sum_bytes += objectComms[i][j];
-
-//     // This gives higher gain value to objects that have more within node communication
-//     gain_val[i] = 2 * objectComms[i][SELF_IDX] - sum_bytes;
-//   }
-
-//   CkPrintf("Before sorting in oldLB:\n");
-//   for (int i = 0; i < n_objs; i++)
-//   {
-//     CkPrintf("gain_val[%d] = %f\n", i, gain_val[i]);
-//   }
-
-//   // T1: create a heap based on gain values, and its position also.
-
-//   obj_heap.resize(n_objs);
-//   heap_pos.resize(n_objs);
-//   //  objs.resize(n_objs);
-
-//   // Creating a minheap of objects based on gain value
-//   InitializeObjHeap(obj_arr, n_objs, gain_val);
-
-//   // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
-//   int v_id;
-//   double totalSent = 0;
-//   int counter = 0;
-
-//   //  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
-
-//   int migrated_obj_count = 0;
-//   int n_count = 0;
-// #if 1
-//   while (my_load_after_transfer > 0.0)
-//   {
-//     DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
-//     // counter++;
-//     // pop the object id with the least gain (i.e least internal comm compared to ext comm)
-
-//     //    v_id = counter++;
-//     v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
-
-//     /*If the heap becomes empty*/
-//     if (v_id == -1)
-//     { // objects.size()){//v_id==-1) {
-//       DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
-//       break;
-//     }
-//     int objHandle = objects[v_id].getVertexId();
-//     if (!obj_on_node(get_obj_idx(objHandle)))
-//       continue;
-
-//     //    CkPrintf("\n On SimNode-%d, popped v_id = %d (handle%d)", thisIndex, v_id, objHandle);
-
-//     double currLoad = objects[v_id].getVertexLoad();
-//     if (!objects[v_id].isMigratable())
-//     {
-//       // CkPrintf("not migratable \n");
-//       continue;
-//     }
-//     DEBUGL(("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad));
-//     vector<int> comm = objectComms[v_id];
-//     int maxComm = 0;
-//     int maxi = -1;
-//     vector<int> V(neighborCount);
-//     std::iota(V.begin(), V.end(), 0); // Initializing
-//     sort(V.begin(), V.end(), [&](int i, int j)
-//          { return toSendLoad[i] > toSendLoad[j]; });
-//     // TODO: Get the object vs communication cost ratio and work accordingly.
-//     for (int i = 0; i < neighborCount; i++)
-//     {
-//       int l = V[i];
-//       // TODO: if not underloaded continue
-//       if (toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l] * 1.35)
-//       { //+threshold) {
-// //          maxi = l;break;
-// #if 1
-//         if (l != SELF_IDX && (maxi == -1 || maxComm < comm[l]))
-//         {
-//           maxi = l;
-//           maxComm = comm[l];
-//         }
-// #endif
-//       }
-//       //        l = (l+1)%neighborCount;
-//     }
-//     //      n_count = (n_count+1)%neighborCount;
-
-//     if (maxi != -1)
-//       DEBUGL(("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi, sendToNeighbors[maxi], currLoad, toSendLoad[maxi]));
-
-//     if (maxi != -1)
-//     {
-//       migrated_obj_count++;
-//       int node = sendToNeighbors[maxi];
-//       toSendLoad[maxi] -= currLoad;
-//       totalSent += currLoad;
-
-//       int receiverNodePE = node;
-//       //        thisProxy[receiverNodePE].informOfArrivingObj(objId, currPE, currLoad); //Inform the rank-0 on receiving node
-//       // emig_objs.push_back(std::make_pair(objId, currPE, currLoad));
-//       //        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
-
-//       // Diffusion *diff0 = diff_array(0).ckLocal();
-//       // diff0->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
-
-//       // Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
-//       // diffRecv->my_load_after_transfer += currLoad;
-//       // my_load_after_transfer -= currLoad;
-//       // //        CkPrintf("\nSending load %lf from node-%d(load %lf) to node-%d (load %lf)", currLoad, thisIndex, my_load_after_transfer, receiverNodePE,diffRecv->my_load_after_transfer);
-//       // loadNeighbors[maxi] += currLoad;
-
-//       nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
-
-//       // Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
-//       // diffRecv->my_load_after_transfer += currLoad;
-
-//       diff_array(receiverNodePE).updateLoad(currLoad);
-//       // thisProxy[receiverNodePE].addObject(obj_global_idx);
-//       objects.erase(objects.begin() + v_id);
-
-//       my_load_after_transfer -= currLoad;
-//       //        CkPrintf("\nSending load %lf from node-%d(load %lf) to node-%d (load %lf)", currLoad, thisIndex, my_load_after_transfer, receiverNodePE,diffRecv->my_load_after_transfer);
-//       loadNeighbors[maxi] += currLoad;
-//     }
-//     else
-//     {
-//       DEBUGL(("[%d] maxi is negative currLoad %f \n", CkMyPe(), currLoad));
-//     }
-//   } // end of while
-
-// #endif
-//   for (int i = 0; i < neighborCount; i++)
-//   {
-//     double to_send_total = 0.0;
-//     if (toSendLoad[i] > 0.0)
-//     {
-//       to_send_total += toSendLoad[i];
-//       DEBUGL(("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total, sendToNeighbors[i]));
-//     }
-//   }
-//   //    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);
-//   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
-
-//   contribute(cbm); // sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
-
-//   // contribute(CkCallback(CkReductionTarget(Main, done), mainProxy));
-// }
-
 void Diffusion::InitializeObjHeap(int *obj_arr, int n, int *gain_val)
 {
   for (int i = 0; i < n; i++)
@@ -1226,9 +1068,140 @@ void Diffusion::LoadBalancingCentroids()
   // bug? should be in decreasing order?
   std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
 
+  vector<int> nbor_ids(neighborCount);
+  std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
+
+#ifdef NEWSTRAT2
+
+  vector<int> avail_objects(n_objs);
+  std::iota(avail_objects.begin(), avail_objects.end(), 0);
+#endif
+
   // Migration: iteratively picking item with most gain value
   while (my_load_after_transfer > 0)
   {
+#ifdef NEWSTRAT2
+    if (obj_gain_pairs.empty())
+      break;
+
+    // pop front item out of sorted list (highest gain value)
+    auto front = obj_gain_pairs.front();
+    obj_gain_pairs.erase(obj_gain_pairs.begin());
+
+    int obj_local_idx = front.second;
+    int obj_gain = front.first;
+
+    int obj_global_idx = obj_local_to_global[obj_local_idx];
+
+    if (map_obid_pe[obj_global_idx] != thisIndex)
+      CkAbort("ERROR: Object %d not on node %d\n", obj_global_idx, thisIndex);
+
+    if (!statsData->objData[obj_global_idx].migratable)
+      CkAbort("Object in objects list must be migratable: obj %d on pe %d\n", obj_global_idx, thisIndex);
+
+    double currLoad = map_obj_to_load[obj_local_idx];
+
+    // sort neighbors by distance to this object
+    std::vector<std::pair<double, int>> neighbor_dist_pairs(neighborCount);
+    for (int n = 0; n < neighborCount; n++)
+    {
+      int localNeighborId = n;
+      int objDist = map_obj_to_neighbor_dist[obj_local_idx][localNeighborId];
+      neighbor_dist_pairs[localNeighborId] = std::make_pair(objDist, localNeighborId);
+    }
+    std::sort(neighbor_dist_pairs.begin(), neighbor_dist_pairs.end());
+
+    // find the first neighbor that can take this object
+    int localToSendNeighbor = -1;
+    for (int n = 0; n < neighborCount; n++)
+    {
+      int local_n_id = neighbor_dist_pairs[n].second;
+      if (toSendLoad[local_n_id] > 0.0 && currLoad <= toSendLoad[local_n_id])
+      {
+        localToSendNeighbor = local_n_id;
+        break;
+      }
+    }
+
+    // no neighbor chosen, obj doesn't migrate
+    if (localToSendNeighbor == -1)
+      continue;
+
+    // object and neighbor have been chosen
+    int globalNeighborId = sendToNeighbors[localToSendNeighbor];
+    toSendLoad[localToSendNeighbor] -= currLoad;
+    loadNeighbors[localToSendNeighbor] += currLoad;
+    my_load_after_transfer -= currLoad;
+
+    // global updates
+    // diff0->map_obid_pe[obj_global_idx] = globalNeighborId;
+    nodeGroup->map_obid_pe[obj_global_idx] = globalNeighborId;
+
+    // Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
+    // diffRecv->my_load_after_transfer += currLoad;
+    thisProxy[globalNeighborId].updateLoad(currLoad); // TODO: objects should be buffered because this could arrive before LoadBalancingCentroids
+
+#elif defined(NEWSTRAT1)
+
+    // find best neighbor (highest load requested)
+    auto nbor_iterator = std::max_element(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
+                                          { return toSendLoad[i] > toSendLoad[j]; });
+
+    int neighbor = *nbor_iterator;
+    if (toSendLoad[neighbor] <= 0)
+      break;
+
+    assert(neighbor != SELF_IDX && neighbor != EXT_IDX); // this should be covered by the above check
+
+    if (avail_objects.empty())
+      break; // stop when no more objects can be sent
+
+    // sort objects
+    std::vector<std::pair<int, int>> obj_dist_pairs;
+    for (int local_avail_obj : avail_objects)
+    {
+      assert(local_avail_obj >= 0 && local_avail_obj < n_objs);
+      obj_dist_pairs.push_back(std::make_pair(map_obj_to_neighbor_dist[local_avail_obj][neighbor], local_avail_obj));
+    }
+    std::sort(obj_dist_pairs.begin(), obj_dist_pairs.end(), std::less<std::pair<int, int>>());
+
+    // pick best object that fits the load
+    int best_obj_dist = -1;
+    int obj_id = -1;
+    int obj_dist = -1;
+    double obj_load = -1;
+
+    for (auto &obj_dist_pair : obj_dist_pairs)
+    {
+      obj_id = obj_dist_pair.second;
+      obj_dist = obj_dist_pair.first;
+      obj_load = objects[obj_id].getVertexLoad();
+
+      if (obj_load <= toSendLoad[neighbor])
+      {
+        best_obj_dist = obj_dist;
+        break;
+      }
+    }
+
+    if (best_obj_dist == -1)
+      break; // no object fits the load for the neighbor with highest capacity... algorithm over
+
+    // best object and neighbor chosen! do migration:
+    int localToSendNeighbor = neighbor;
+    int globalNeighborId = sendToNeighbors[localToSendNeighbor];
+    toSendLoad[localToSendNeighbor] -= obj_load;
+    loadNeighbors[localToSendNeighbor] += obj_load;
+    my_load_after_transfer -= obj_load;
+
+    // global updates
+    int obj_global_idx = obj_local_to_global[obj_id];
+    avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_id), avail_objects.end());
+
+    nodeGroup->map_obid_pe[obj_global_idx] = globalNeighborId;
+    thisProxy[globalNeighborId].updateLoad(obj_load); // TODO: RACE CONDITION!
+
+#elif defined(ORIGSTRAT)
     if (obj_gain_pairs.empty())
       break;
 
@@ -1278,7 +1251,7 @@ void Diffusion::LoadBalancingCentroids()
       continue;
 
     // object and neighbor have been chosen
-    objects.erase(objects.begin() + obj_local_idx); // removing object from local list
+    // objects.erase(objects.begin() + obj_local_idx); // removing object from local list
     // localToSendNeighbor is the id of the neighbor in local context (used in sendToNeighbors, toSendLoad, etc.)
     // globalNeighborId is the global id of the neighbor (used in map_obid_pe and other global contexts)
     int globalNeighborId = sendToNeighbors[localToSendNeighbor];
@@ -1294,6 +1267,7 @@ void Diffusion::LoadBalancingCentroids()
     // diffRecv->my_load_after_transfer += currLoad;
     thisProxy[globalNeighborId].updateLoad(currLoad); // TODO: objects should be buffered because this could arrive before LoadBalancingCentroids
     // thisProxy[globalNeighborId].addObject(obj_global_idx);
+#endif
   }
 
   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
