@@ -1,4 +1,5 @@
-mainmodule stencil3d {
+mainmodule stencil3d
+{
 
   readonly CProxy_Main mainProxy;
   readonly int arrayDimX;
@@ -12,32 +13,43 @@ mainmodule stencil3d {
   readonly int num_chare_y;
   readonly int num_chare_z;
 
-  mainchare Main {
-    entry Main(CkArgMsg *m);
-    entry [reductiontarget] void report();
+  mainchare Main
+  {
+    entry Main(CkArgMsg * m);
+    entry[reductiontarget] void report();
   };
 
-  array [3D] Stencil {
+  array[3D] Stencil
+  {
     entry Stencil(void);
     entry void begin_iteration(void);
     entry void receiveGhosts(int iter, int dir, int height, int width,
-        double ghosts[height*width]);
+                             double ghosts[height * width]);
 
-    entry [reductiontarget] void doStep() {
-      serial "begin_iteration" {
+    entry[reductiontarget] void doStep()
+    {
+      serial "begin_iteration"
+      {
         begin_iteration();
       }
-      for(imsg = 0; imsg < 6; imsg++) {
+      for (imsg = 0; imsg < 6; imsg++)
+      {
         // "iterations" keeps track of messages across steps
-        when receiveGhosts[iterations] (int iter, int dir, int height,
-            int width, double ghosts[height*width])
-          serial "process_ghosts" {
-            processGhosts(dir, height, width, ghosts);
-          }
+        when receiveGhosts[iterations](int iter, int dir, int height,
+                                       int width, double ghosts[height * width])
+            serial "process_ghosts"
+        {
+          processGhosts(dir, height, width, ghosts);
+        }
       }
-      serial "do_work" {
+      serial "do_work"
+      {
         check_and_compute();
       }
     };
+  };
+  group Grid2DMap : CkArrayMap
+  {
+    entry Grid2DMap(int xdim, int ydim);
   };
 };
