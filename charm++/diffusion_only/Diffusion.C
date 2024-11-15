@@ -93,8 +93,8 @@ public:
     else if (fn_type == 5)
       // all pe randomly increase or decrease by up to %20
       obj_imb = (obj_imb_funcptr)load_imb_all_on_pe;
-    // else if (fn_type == 6)
-    //   obj_imb = (obj_imb_funcptr)set_to_one;
+    else if (fn_type == 6)
+      obj_imb = (obj_imb_funcptr)load_setconst;
     else
     {
       CkPrintf("No load imbalance injected\n");
