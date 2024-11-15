@@ -30,13 +30,19 @@ module Diffusion
     entry GlobalMap();
   };
 
+  initnode void registerFindBestEdge(void);
+
   array[1D] Diffusion
   {
     entry Diffusion(int num_nodes, std::vector<int> map_obj_id, std::vector<int> map_obid_pe, std::vector<std::vector<LBRealType>> map_pe_centroid);
     entry[reductiontarget] void startDiffusion();
     entry[reductiontarget] void MaxLoad(double val);
     entry[reductiontarget] void AvgLoad(double val);
+
     entry[reductiontarget] void findNBors(int do_again);
+
+    entry[reductiontarget] void findRemainingNbors(int do_again);
+    entry[reductiontarget] void buildMSTinRounds(double init_parent_pair[n], int n);
     entry[expedited] void updateLoad(double val);
     entry[expedited] void addObject(int obid);
 

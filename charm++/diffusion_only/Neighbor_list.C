@@ -36,6 +36,12 @@ void Diffusion::createCommList()
         ebytes[toNode] += commData.bytes;
     }
   }
+
+  for (int nbor = 0; nbor < numNodes; nbor++)
+  {
+    cost_for_neighbor[nbor] = ebytes[nbor];
+  }
+
   sortArr(ebytes, numNodes, nbors);
 }
 
@@ -44,6 +50,7 @@ void Diffusion::findNBors(int do_again)
   DEBUGL(("\nNode-%d, round =%d, sendToNeighbors.size() = %d", thisIndex, round, sendToNeighbors.size()));
   if (round == 0)
   {
+    cost_for_neighbor = {}; // dictionary of nbor keys to cost
     if (centroid)
     {
       pick = 0;
@@ -55,6 +62,17 @@ void Diffusion::findNBors(int do_again)
     }
   }
 
+  mstVisitedPes.clear();
+  double init_and_parent[3];
+  init_and_parent[0] = 0;
+  init_and_parent[1] = -1;
+  init_and_parent[2] = 0;
+
+  buildMSTinRounds(init_and_parent, 2);
+}
+
+void Diffusion::findRemainingNbors(int do_again)
+{
   requests_sent = 0;
   if (!do_again || round == 100)
   {
@@ -63,6 +81,8 @@ void Diffusion::findNBors(int do_again)
     loadNeighbors = new double[neighborCount];
     toSendLoad = new double[neighborCount];
     toReceiveLoad = new double[neighborCount];
+
+    CkPrintf("DONE FINDING REMAINING: Node-%d, round =%d, neighborCount = %d, neighbor[0] = %d\n", thisIndex, round, neighborCount, sendToNeighbors[0]);
 
     CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
     contribute(cb);
@@ -79,8 +99,11 @@ void Diffusion::findNBors(int do_again)
     {
       int potentialNbor = nbors[pick++]; // rand() % numNodes;
       if (myNodeId != potentialNbor &&
-          std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end())
+          std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end() &&
+          potentialNbor < numNodes &&
+          potentialNbor >= 0)
       {
+        // CkPrintf("Node-%d sending request round =%d, potentialNbor = %d\n", thisIndex, round, potentialNbor);
         requests_sent++;
         thisProxy(potentialNbor).proposeNbor(myNodeId);
         potentialNb++;
@@ -90,8 +113,78 @@ void Diffusion::findNBors(int do_again)
   else
   {
     int do_again = 0;
-    CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
+    CkCallback cb(CkReductionTarget(Diffusion, findRemainingNbors), thisProxy);
     contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+  }
+}
+
+void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
+{
+  double cost = init_and_parent[0];
+  int from = int(init_and_parent[1]);
+  int to = int(init_and_parent[2]); // new node added to graph
+
+  // initiator is new node added to graph
+  // assert that to is not already in graph
+  // CkPrintf("Node-%d getting edge from = %d, to = %d, cost = %f\n", thisIndex, from, to, cost);
+  mstVisitedPes.push_back(to);
+
+  if (thisIndex == to)
+  {
+    if (from != -1)
+    {
+      // CkPrintf("Node-%d, adding neighbor %d\n", thisIndex, from);
+      sendToNeighbors.push_back(from);
+    }
+  }
+
+  if (thisIndex == from)
+  {
+    assert(to != -1);
+    // CkPrintf("Node-%d, adding neighbor %d\n", thisIndex, to);
+    sendToNeighbors.push_back(to);
+  }
+
+  if (mstVisitedPes.size() == numNodes)
+  {
+    CkPrintf("Node-%d, MST complete with numneighbors = %d, visitedPEs size %d\n", thisIndex, sendToNeighbors.size(), mstVisitedPes.size());
+    int do_again = 1;
+
+    CkCallback cb(CkReductionTarget(Diffusion, findRemainingNbors), thisProxy);
+    contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+  }
+  else
+  {
+    int newNbor = -1;
+    int newParent = -1;
+    int cost = 0;
+    // check if thisIndex is in mstVisitedPes
+    if (std::find(mstVisitedPes.begin(), mstVisitedPes.end(), thisIndex) != mstVisitedPes.end())
+    {
+      // node in visited set
+
+      // pick best edge to unvisited node
+      while (1)
+      {
+        int checkNbor = nbors[pick++];
+        if (std::find(mstVisitedPes.begin(), mstVisitedPes.end(), checkNbor) == mstVisitedPes.end() && checkNbor != thisIndex && checkNbor < numNodes && checkNbor >= 0)
+        {
+          newNbor = checkNbor;
+          newParent = thisIndex;
+          cost = cost_for_neighbor[newNbor];
+          break;
+        }
+      }
+    }
+
+    // contribute to reduction
+    double init_and_parent_new[3];
+    init_and_parent_new[0] = cost;
+    init_and_parent_new[1] = newParent;
+    init_and_parent_new[2] = newNbor;
+
+    // CkPrintf("Node-%d, contributing newNbor = %d, newParent = %d\n", thisIndex, newNbor, newParent);
+    contribute(sizeof(double) * 3, init_and_parent_new, findBestEdgeType, CkCallback(CkReductionTarget(Diffusion, buildMSTinRounds), thisProxy));
   }
 }
 
@@ -124,6 +217,11 @@ void Diffusion::createDistNList()
     {
       distance[n] += (myCentroid[i] - oppCentroid[i]) * (myCentroid[i] - oppCentroid[i]);
     }
+  }
+
+  for (int nbor = 0; nbor < numNodes; nbor++)
+  {
+    cost_for_neighbor[nbor] = distance[nbor];
   }
 
   // sort neighbors based on centroid distance
@@ -163,7 +261,7 @@ void Diffusion::okayNbor(int agree, int nborId)
   if (sendToNeighbors.size() < NUM_NEIGHBORS)
     do_again = 1;
   round++;
-  CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
+  CkCallback cb(CkReductionTarget(Diffusion, findRemainingNbors), thisProxy);
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
 }
 

@@ -24,6 +24,47 @@ public:
     GlobalMap();
 };
 
+CkReductionMsg *findBestEdge(int nMsg, CkReductionMsg **msgs)
+{
+    // Sum starts off at zero
+    double ret[3] = {0.0, 0, 0}; // weight, to, from
+
+    double best_weight = 0;
+    double best_from = -1;
+    double best_to = -1;
+
+    for (int i = 0; i < nMsg; i++)
+    {
+        // Sanity check:
+        CkAssert(msgs[i]->getSize() == 3 * sizeof(double));
+        // Extract this message's data
+        double *m = (double *)msgs[i]->getData();
+
+        int curr_weight = m[0];
+        int curr_to = m[1];
+        int curr_from = m[2];
+
+        if (curr_weight > best_weight)
+        {
+            best_weight = curr_weight;
+            best_to = curr_to;
+            best_from = curr_from;
+        }
+    }
+
+    ret[0] = best_weight;
+    ret[1] = best_to;
+    ret[2] = best_from;
+
+    return CkReductionMsg::buildNew(3 * sizeof(double), ret);
+}
+
+/*global*/ CkReduction::reducerType findBestEdgeType;
+/*initnode*/ void registerFindBestEdge(void)
+{
+    findBestEdgeType = CkReduction::addReducer(findBestEdge);
+}
+
 class Diffusion : public CBase_Diffusion
 {
     Diffusion_SDAG_CODE public : Diffusion(int num_nodes, std::vector<int> map_obj_id, std::vector<int> map_obid_pe, std::vector<std::vector<LBRealType>> map_pe_centroid);
@@ -54,6 +95,9 @@ class Diffusion : public CBase_Diffusion
 
     /* randomly picked neighbors */
     void findNBors(int do_again);
+    void findRemainingNbors(int do_again);
+
+    void buildMSTinRounds(double *init_and_parent, int n);
     void proposeNbor(int nborId);
     void okayNbor(int agree, int nborId);
 
@@ -94,6 +138,9 @@ private:
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
     std::vector<CkVertex> objects;
     std::vector<CkVertex> new_objects;
+
+    std::vector<int> mstVisitedPes;
+    std::unordered_map<int, double> cost_for_neighbor;
 
     int neighborCount;
     bool finished;
