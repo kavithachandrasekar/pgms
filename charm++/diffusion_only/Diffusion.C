@@ -551,45 +551,95 @@ void Diffusion::AvgLoad(double val)
 
 void Diffusion::PseudoLoadBalancing()
 {
+#define NEWPSEUDOLB
+#ifdef NEWPSEUDOLB
+
+  double threshold = 0; // THRESHOLD * avgLoadNeighbor / 100.0;
+
+  // find avg load of neighborhood
+  double totalNborLoad = std::accumulate(loadNeighbors, loadNeighbors + neighborCount, 0.0);
+  double avgLoadNeighbor = (totalNborLoad + my_load) / (neighborCount + 1);
+
+  double totalOverload = my_load - avgLoadNeighbor; // how much extra do I own?
+
+  double thisIterToSend[neighborCount];
+
+  std::vector<int> needyNeigbhors;
+  for (int i = 0; i < neighborCount; i++)
+  {
+    if (loadNeighbors[i] < my_load && totalOverload > 0)
+    {
+      needyNeigbhors.push_back(i);
+    }
+    else
+    {
+      int nbor_node = sendToNeighbors[i];
+      thisProxy(nbor_node).PseudoLoad(itr, 0, thisIndex);
+    }
+  }
+
+  if (!needyNeigbhors.empty() && totalOverload > 0)
+  {
+    double toSendPerNbor = totalOverload / double(needyNeigbhors.size());
+    assert(toSendPerNbor >= 0);
+    for (int i : needyNeigbhors)
+    {
+      thisIterToSend[i] = toSendPerNbor;
+      toSendLoad[i] += toSendPerNbor;
+      my_load -= toSendPerNbor;
+
+      int nbor_node = sendToNeighbors[i];
+      thisProxy(nbor_node).PseudoLoad(itr, thisIterToSend[i], thisIndex);
+      CkPrintf("Node-%d, iter %d, sending %f to %d with totalOverload %f and needyNeighbors %d\n", thisIndex, itr, thisIterToSend[i], nbor_node, totalOverload, needyNeigbhors.size());
+    }
+  }
+
+#else
   std::string nbor_nodes_load = " ";
   for (int i = 0; i < neighborCount; i++)
   {
     nbor_nodes_load += " node-" + std::to_string(sendToNeighbors[i]) + "'s load= " + std::to_string(loadNeighbors[i]);
   }
   DEBUGL2(("[PE-%d, Node-%d] Pseudo Load Balancing , iteration %d my_load %f my_load_after_transfer %f avgLoadNeighbor %f (split = %s)\n", CkMyPe(), CkMyNode(), itr, my_load, my_load_after_transfer, avgLoadNeighbor, nbor_nodes_load.c_str()));
+
   double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
 
-  avgLoadNeighbor = (avgLoadNeighbor + my_load) / 2;
-  double totalOverload = my_load - avgLoadNeighbor;
+  avgLoadNeighbor = (avgLoadNeighbor + my_load) / 2; // why is my_load weighted more heavily?
+
+  double totalOverload = my_load - avgLoadNeighbor; // how much extra do I own?
   double totalUnderLoad = 0.0;
   double thisIterToSend[neighborCount];
+
+  double start_load = my_load;
+  double start_totalOverload = totalOverload; // if this is 0, I do nothing for this round
+
   for (int i = 0; i < neighborCount; i++)
     thisIterToSend[i] = 0.0;
-  if (totalOverload > 0)
+
+  if (totalOverload > 0) // I have extra load to give to underloaded neighbors
     for (int i = 0; i < neighborCount; i++)
     {
       if (loadNeighbors[i] < (avgLoadNeighbor - threshold))
       {
-        thisIterToSend[i] = avgLoadNeighbor - loadNeighbors[i];
-        totalUnderLoad += avgLoadNeighbor - loadNeighbors[i];
-        //        DEBUGL2(("[PE-%d] iteration %d thisIterToSend %f avgLoadNeighbor %f loadNeighbors[%d] %f to node %d\n",
-        //                thisIndex, itr, thisIterToSend[i], avgLoadNeighbor, i, loadNeighbors[i], sendToNeighbors[i]));
+        double toSend = avgLoadNeighbor - loadNeighbors[i];
+        thisIterToSend[i] = toSend; // send neighbor i FULL missing load
+        totalUnderLoad += toSend;   // underload counts what I gave away
       }
     }
+
   if (totalUnderLoad > 0 && totalOverload > 0 && totalUnderLoad > totalOverload)
+    //  I want to send data, I have extra, but I dont have enough
     totalOverload += threshold;
   else
-    totalOverload = totalUnderLoad;
-  DEBUGL2(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d totalUndeload %f totalOverLoad %f my_load_after_transfer %f\n", CkMyPe(), itr, totalUnderLoad, totalOverload, my_load_after_transfer));
+    totalOverload = totalUnderLoad; // what is this doing? this is how much I hoped to send (but cannot)
+
   for (int i = 0; i < neighborCount; i++)
   {
     if (totalOverload > 0 && totalUnderLoad > 0 && thisIterToSend[i] > 0)
     {
-      //      DEBUGL2(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d(pe-%d) toSend %lf totalToSend %lf\n", CkMyPe(), itr, sendToNeighbors[i], CkNodeFirst(sendToNeighbors[i]), thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad));
       thisIterToSend[i] *= totalOverload / totalUnderLoad;
       toSendLoad[i] += thisIterToSend[i];
-      DEBUGL2(("[Node-%d](my load = %lf-%lf) iteration %d thisIterToSend %f (total send %lf)  avgLoadNeighbor %f loadNeighbors[%d] %f to node %d\n",
-               thisIndex, my_load, thisIterToSend[i], itr, thisIterToSend[i], toSendLoad[i], avgLoadNeighbor, i, loadNeighbors[i], sendToNeighbors[i]));
+
       if (my_load - thisIterToSend[i] < 0)
         CkAbort("Error: my_load (%f) - thisIterToSend[i] (%f) < 0\n", my_load, thisIterToSend[i]);
       my_load -= thisIterToSend[i];
@@ -599,6 +649,7 @@ void Diffusion::PseudoLoadBalancing()
     int nbor_node = sendToNeighbors[i];
     thisProxy(nbor_node).PseudoLoad(itr, thisIterToSend[i], thisIndex);
   }
+#endif
 }
 
 int Diffusion::get_local_obj_idx(int objHandleId)
