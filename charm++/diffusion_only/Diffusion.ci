@@ -131,5 +131,44 @@ module Diffusion
         contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
       }
     }
+
+    entry void getUpdates()
+    {
+
+      // Send updates to other neighbors
+      for (temp_itr = 0; temp_itr < neighborCount; temp_itr++)
+      {
+        serial
+        {
+          double loadToSend = toSendNeighborsLoad[temp_itr];
+          thisProxy(sendToNeighbors[temp_itr]).updateLoad(loadToSend);
+        }
+      }
+
+      for (temp_itr = 0; temp_itr < neighborCount; temp_itr++)
+      {
+        when updateLoad(double val) serial
+        {
+          my_load_after_transfer += val;
+        }
+      }
+
+      serial
+      {
+        my_load = my_load_after_transfer;
+
+        // printing for debug
+        // for (int i = 0; i < neighborCount; i++)
+        // {
+        //   mainProxy.CkPrint2FileP3(thisIndex, sendToNeighbors[i], toSendNeighborsLoad[i]);
+        // }
+        // mainProxy.CkPrint2FileP3(thisIndex, thisIndex, my_load_after_transfer);
+
+        // CkPrintf("\nIN FINISHLB Node-%d, my load = %lf", thisIndex, my_load_after_transfer);
+
+        CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
+        contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
+      }
+    }
   };
 };

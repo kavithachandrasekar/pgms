@@ -221,7 +221,9 @@ void Diffusion::createDistNList()
 
   for (int nbor = 0; nbor < numNodes; nbor++)
   {
-    cost_for_neighbor[nbor] = distance[nbor];
+    cost_for_neighbor[nbor] = 100000000; // TODO: this should really be inf
+    if (distance[nbor] != 0)
+      cost_for_neighbor[nbor] = 1 / distance[nbor];
   }
 
   // sort neighbors based on centroid distance

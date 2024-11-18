@@ -327,6 +327,7 @@ void Diffusion::createObjs()
 {
   // CkPrintf("\n[SimNode#%d] createObjs", thisIndex);
   createObjList();
+  my_update = 0;
 
   // before LB statistics
   CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
@@ -491,16 +492,12 @@ bool Diffusion::AggregateToSend()
 void Diffusion::finishLB()
 {
   finished = true;
-  my_load = my_load_after_transfer;
-  //  CkPrintf("\nNode-%d, my load = %lf", thisIndex, my_load_after_transfer);
 
-  CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
-  contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
-}
+  // done in getupdates
+  // my_load_after_transfer += my_update;
+  // my_load = my_load_after_transfer;
 
-void Diffusion::updateLoad(double update)
-{
-  my_load_after_transfer += update;
+  thisProxy(thisIndex).getUpdates();
 }
 
 void Diffusion::MaxLoad(double val)
@@ -590,7 +587,7 @@ void Diffusion::PseudoLoadBalancing()
 
       int nbor_node = sendToNeighbors[i];
       thisProxy(nbor_node).PseudoLoad(itr, thisIterToSend[i], thisIndex);
-      CkPrintf("Node-%d, iter %d, sending %f to %d with totalOverload %f and needyNeighbors %d\n", thisIndex, itr, thisIterToSend[i], nbor_node, totalOverload, needyNeigbhors.size());
+      // CkPrintf("Node-%d, iter %d, sending %f to %d with totalOverload %f and needyNeighbors %d\n", thisIndex, itr, thisIterToSend[i], nbor_node, totalOverload, needyNeigbhors.size());
     }
   }
 
@@ -681,6 +678,8 @@ void Diffusion::LoadBalancing()
   {
     objectComms[i].resize(1000, 0);
   }
+
+  toSendNeighborsLoad.resize(neighborCount, 0.0);
 
   // create dictionary of a list of pairs
   // pair: object id and comm bytes
@@ -791,17 +790,25 @@ void Diffusion::LoadBalancing()
   while (my_load_after_transfer > 0)
   {
     // pick the best neighbor
-    auto nbor_iterator = std::max_element(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
+    // auto nbor_iterator = std::max_element(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
+    //                                       { return toSendLoad[i] > toSendLoad[j]; });
+
+    // sort nbor_ids based on toSendLoad
+    std::sort(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
                                           { return toSendLoad[i] > toSendLoad[j]; });
 
-    int neighbor = *nbor_iterator;
-    if (toSendLoad[neighbor] <= 0)
-      break;
+    int neighbor = nbor_ids[0];
 
+    if (toSendLoad[neighbor] <= 0)
+    {
+      break;
+    }
     assert(neighbor != SELF_IDX && neighbor != EXT_IDX); // this should be covered by the above check
 
     if (avail_objects.empty())
+    {
       break; // stop when no more objects can be sent
+    }
 
     // sort objects
     std::vector<std::pair<int, int>> obj_comm_pairs;
@@ -833,8 +840,9 @@ void Diffusion::LoadBalancing()
     }
 
     if (best_obj_comm == -1)
+    {
       break; // no object fits the load for the neighbor with highest capacity... algorithm over
-
+    }
     // best object and neighbor chosen! do migration:
     migrated_obj_count++;
 
@@ -870,8 +878,9 @@ void Diffusion::LoadBalancing()
     int objHandle = objects[obj_id].getVertexId();
     nodeGroup->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
 
-    diff_array(receiverNodePE).updateLoad(obj_load); // this only updates load_after_transfer (no race condition)
-    // objects.erase(objects.begin() + obj_id);
+    // diff_array(receiverNodePE).updateLoad(obj_load); // this only updates load_after_transfer (no race condition)
+    //  objects.erase(objects.begin() + obj_id);
+    toSendNeighborsLoad[neighbor] += obj_load;
 
     // remove object with avail_objects[i] = obj_id from avail_objects
     avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_id), avail_objects.end());
@@ -879,6 +888,7 @@ void Diffusion::LoadBalancing()
     my_load_after_transfer -= obj_load;
     loadNeighbors[neighbor] += obj_load; // TODO: what is this used for?
   }
+
 #elif defined(NEWSTRAT1)
   vector<int> nbor_ids(neighborCount);
   std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
@@ -1190,7 +1200,9 @@ void Diffusion::LoadBalancingCentroids()
 
     // Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
     // diffRecv->my_load_after_transfer += currLoad;
-    thisProxy[globalNeighborId].updateLoad(currLoad); // TODO: objects should be buffered because this could arrive before LoadBalancingCentroids
+    // thisProxy[globalNeighborId].updateLoad(currLoad); // TODO: objects should be buffered because this could arrive before LoadBalancingCentroids
+
+    toSendNeighborsLoad[localToSendNeighbor] += currLoad;
 
 #elif defined(NEWSTRAT1)
 

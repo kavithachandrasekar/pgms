@@ -77,7 +77,6 @@ class Diffusion : public CBase_Diffusion
     void AvgLoad(double val);
 
     void addObject(int id);
-    void updateLoad(double val);
     void finishLB();
 
     void passPtrs(double *loadNbors, double *toSendLd,
@@ -141,6 +140,7 @@ private:
 
     std::vector<int> mstVisitedPes;
     std::unordered_map<int, double> cost_for_neighbor;
+    std::vector<double> toSendNeighborsLoad;
 
     int neighborCount;
     bool finished;
@@ -172,6 +172,7 @@ public:
     BaseLB::LDStats *statsData;
     double my_load;
     double my_load_after_transfer;
+    double my_update;
 };
 
 #endif /* _DistributedLB_H_ */
