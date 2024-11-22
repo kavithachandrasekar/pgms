@@ -95,6 +95,8 @@ class Main : public CBase_Main {
     for (i = 0; i < statsData->objData.size(); i++) {
       if (statsData->objData[i].migratable) 
           nmigobj++;
+      //std::vector<LBRealType> pos = statsData->objData[i].position;
+      //CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[i]);
     }
     statsData->n_migrateobjs = nmigobj; 
 
@@ -148,6 +150,8 @@ class Main : public CBase_Main {
       if (!statsData->objData[obj].migratable)
         continue;
       statsData->from_proc[obj] = diff_obj0->map_obid_pe[obj];
+      std::vector<LBRealType> pos = statsData->objData[obj].position;
+      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
     }
     const char* filename = "lbdata.dat.out.0";
     FILE *f = fopen(filename, "w");
@@ -408,90 +412,76 @@ void Diffusion::PseudoLoadBalancing() {
     thisProxy(nbor_node).PseudoLoad(itr, thisIterToSend[i], thisIndex);
   }
 }
-
+int Diffusion::get_local_obj_idx(int objHandleId)
+{
+  for (int i = 0; i < objects.size(); i++)
+  {
+    if (objects[i].getVertexId() == objHandleId)
+      return i;
+  }
+  return -1;
+}
 #include "omp.h"
 
 void Diffusion::LoadBalancing() {
-//  if(thisIndex%4==0)
-  { //Overloaded PEs in this dataset
-    for(int i = 0; i < neighborCount; i++) {
-      if(toSendLoad[i]>0.0) 
-      {
-        //CkPrintf("\nNode-%d to send load %lf (%d objects) to node-%d", thisIndex, toSendLoad[i], (int)(toSendLoad[i]/0.1), sendToNeighbors[i]);
-      }
-    }
-  }
-  int n_objs = objects.size();
-//  if(thisIndex == 0)
-  DEBUGL(("[SimNode#%d] GRD: Load Balancing w objects size = %d \n", thisIndex, n_objs));
-  fflush(stdout);
-//  Iterate over the comm data and for each object, store its comm bytes
-//  to other neighbor nodes and own node.
 
-  //objectComms maintains the comm bytes for each object on this node
-  //with the neighboring node
-  //we also maintain comm within this node and comm bytes outside
-  //(of this node and neighboring nodes)
+  for(int knbor=0;knbor<neighborCount;knbor++) {
+    if(toSendLoad[knbor]<0.0) continue;
+    while(my_load_after_transfer > 0.0 && toSendLoad[knbor]>0.0) {
+      int n_objs = objects.size();
+      objectComms.resize(n_objs);
 
-  //objectComms.reserve(n_objs);
-  objectComms.resize(n_objs);
-
-//  if(gain_val != NULL)
-//      delete[] gain_val;
-  gain_val = new int[n_objs];
-  memset(gain_val, -1, n_objs);
+      gain_val = new int[n_objs];
+      memset(gain_val, -1, n_objs);
 
 
-  for(int i = 0; i < n_objs; i++) {
-    objectComms[i].resize(NUM_NEIGHBORS+2);
-    for(int j = 0; j < NUM_NEIGHBORS+2; j++)
-      objectComms[i][j] = 0;
-  }
-
-  int obj = 0;
-#if 1
-  //if(thisIndex==0)
-  {
-  for(int edge = 0; edge < edge_indices.size()/*statsData->commData.size()*/; edge++) {
-    
-    LDCommData &commData = statsData->commData[edge_indices[edge]];
-    if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
-      LDObjKey from = commData.sender;
-      LDObjKey to = commData.receiver.get_destObj();
-
-      int fromobj = get_obj_idx(from.objID());
-      int toobj = get_obj_idx(to.objID());
-
-      if(fromobj == -1 || toobj == -1) continue;
-
-      int fromNode = obj_node_map(fromobj);
-      if(fromNode != thisIndex) continue;
-      int toNode = obj_node_map(toobj);
-
-      //store internal bytes in the last index pos ? -q
-      if(fromNode == toNode) {
-        int nborIdx = SELF_IDX;
-        int fromObj = statsData->getHash(from);
-        int toObj = statsData->getHash(to);
-        //DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, statsData->n_objs));
-        if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
-        // lastKnown PE value can be wrong.
-        if(toObj != -1 && toObj < n_objs) objectComms[toObj][nborIdx] += commData.bytes;
-      }
-      else { // External communication
-        int nborIdx = findNborIdx(toNode);
-        if(nborIdx == -1)
-          nborIdx = EXT_IDX;//Store in last index if it is external bytes going to non-immediate neighbors
-        int fromObj = statsData->getHash(from);
-        //CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
-        if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
-        obj++;
+      for(int i = 0; i < n_objs; i++) {
+        objectComms[i].resize(NUM_NEIGHBORS+2);
+        for(int j = 0; j < NUM_NEIGHBORS+2; j++)
+          objectComms[i][j] = 0;
       }
 
-    }
-  } // end for
-  }
-#endif
+    int obj = 0;
+  #if 1
+    for(int edge = 0; edge < edge_indices.size()/*statsData->commData.size()*/; edge++) {
+      
+      LDCommData &commData = statsData->commData[edge_indices[edge]];
+      if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
+        LDObjKey from = commData.sender;
+        LDObjKey to = commData.receiver.get_destObj();
+
+        int fromobj = get_obj_idx(from.objID());
+        int toobj = get_obj_idx(to.objID());
+
+        if(fromobj == -1 || toobj == -1) continue;
+
+        int fromNode = obj_node_map(fromobj);
+        if(fromNode != thisIndex) continue;
+        int toNode = obj_node_map(toobj);
+
+        //store internal bytes in the last index pos ? -q
+        if(fromNode == toNode) {
+          int nborIdx = SELF_IDX;
+          int fromObj = get_local_obj_idx(from.objID());
+          int toObj = get_local_obj_idx(to.objID());
+          //DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, statsData->n_objs));
+          if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
+          // lastKnown PE value can be wrong.
+          if(toObj != -1 && toObj < n_objs) objectComms[toObj][nborIdx] += commData.bytes;
+        }
+        else { // External communication
+          int nborIdx = findNborIdx(toNode);
+          if(nborIdx == -1)
+            nborIdx = EXT_IDX;//Store in last index if it is external bytes going to non-immediate neighbors
+          int fromObj = get_local_obj_idx(from.objID());
+          //CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
+          if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
+          obj++;
+        }
+
+      }
+    } // end for
+  #endif
 
   // calculate the gain value, initialize the heap.
   double threshold = THRESHOLD*avgLoadNeighbor/100.0;
@@ -510,11 +500,11 @@ void Diffusion::LoadBalancing() {
     //if(i > objectComms.size()-1) continue;
 //    vector<int> comm_w_nbors = objectComms[i];
     //compute the sume of bytes of all comms for this obj
-    for(int j = 0; j < objectComms[i].size(); j++)
-        sum_bytes += objectComms[i][j];
+//    for(int j = 0; j < objectComms[i].size(); j++)
+        sum_bytes =  objectComms[i][knbor];//+= objectComms[i][j];
 
     //This gives higher gain value to objects that have more within node communication
-    gain_val[i] = 2*objectComms[i][SELF_IDX] - sum_bytes;
+    gain_val[i] = /*2*objectComms[i][SELF_IDX]*/ - sum_bytes;
   }
 
   // T1: create a heap based on gain values, and its position also.
@@ -532,11 +522,9 @@ void Diffusion::LoadBalancing() {
   int counter = 0;
 
 //  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
-
   int migrated_obj_count = 0;
   int n_count = 0;
 #if 1
-  while(my_load_after_transfer > 0.0) {
     DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
     //counter++;
     //pop the object id with the least gain (i.e least internal comm compared to ext comm)
@@ -560,36 +548,13 @@ void Diffusion::LoadBalancing() {
       continue;
     }
     DEBUGL(("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad));
-    vector<int> comm = objectComms[v_id];
-      int maxComm = 0;
-      int maxi = -1;
-    vector<int> V(neighborCount);
-    std::iota(V.begin(),V.end(),0); //Initializing
-    sort( V.begin(),V.end(), [&](int i,int j){return toSendLoad[i]>toSendLoad[j];} );
-      // TODO: Get the object vs communication cost ratio and work accordingly.
-      for(int i = 0; i < neighborCount; i++) {
-        int l = V[i];
-        // TODO: if not underloaded continue
-        if(toSendLoad[l] > 0.0 && currLoad <= toSendLoad[l]*1.35){//+threshold) {
-//          maxi = l;break;
-#if 1
-          if(l!=SELF_IDX && (maxi == -1 || maxComm < comm[l])) {
-              maxi = l;
-             maxComm = comm[l];
-          }
-#endif
-        }
-//        l = (l+1)%neighborCount;
-      }
-//      n_count = (n_count+1)%neighborCount;
 
-      if(maxi != -1)
-        DEBUGL(("\n[PE-%d] maxi = %d node = %d load = %lf to_send_total =%lf", thisIndex, maxi,sendToNeighbors[maxi],currLoad,toSendLoad[maxi]));
+        DEBUGL(("\n[PE-%d] knbor = %d node = %d load = %lf to_send_total =%lf", thisIndex, knbor,sendToNeighbors[knbor],currLoad,toSendLoad[knbor]));
 
-      if(maxi != -1) {
+      if(1) {
         migrated_obj_count++;
-        int node = sendToNeighbors[maxi];
-        toSendLoad[maxi] -= currLoad;
+        int node = sendToNeighbors[knbor];
+        toSendLoad[knbor] -= currLoad;
         totalSent += currLoad;
         
         int receiverNodePE = node;
@@ -604,12 +569,13 @@ void Diffusion::LoadBalancing() {
         diffRecv->my_load_after_transfer += currLoad;
         my_load_after_transfer -= currLoad;
 //        CkPrintf("\nSending load %lf from node-%d(load %lf) to node-%d (load %lf)", currLoad, thisIndex, my_load_after_transfer, receiverNodePE,diffRecv->my_load_after_transfer);
-        loadNeighbors[maxi] += currLoad;
+        loadNeighbors[knbor] += currLoad;
       }
       else {
-        DEBUGL(("[%d] maxi is negative currLoad %f \n", CkMyPe(), currLoad));
+        DEBUGL(("[%d] knbor is negative currLoad %f \n", CkMyPe(), currLoad));
       }
     } //end of while
+  }
 #endif
     for(int i = 0 ; i < neighborCount; i++) {
         double to_send_total = 0.0;

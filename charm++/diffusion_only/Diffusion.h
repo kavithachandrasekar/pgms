@@ -24,6 +24,7 @@ public:
     void MaxLoad(double val);
     void AvgLoad(double val);
     void finishLB();
+    int get_local_obj_idx(int objHandleId);
 
     void passPtrs(double *loadNbors, double *toSendLd,
                               double *toRecvLd, void (*func)(void*), void* obj);

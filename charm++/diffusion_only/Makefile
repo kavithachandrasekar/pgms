@@ -1,6 +1,6 @@
 -include ../../../common.mk
 OPTS	= -O3 -g
-CHARMC	= ../../../../../mpi-linux-x86_64-smp/bin/charmc $(OPTS)
+CHARMC	= ../../../../../netlrts-linux-x86_64-smp/bin/charmc $(OPTS)
 
 OBJS = Diffusion.o
 
