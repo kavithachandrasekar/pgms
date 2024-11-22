@@ -1,0 +1,6 @@
+./Diffusion 1 lbdata.dat.0 1 lb.out|grep Object-PE > op
+cat op|awk '{print $3, $4, $5}' > op2
+cat op2| awk '{print $1}' > x
+cat op2| awk '{print $2}' > y
+cat op2| awk '{print $3}' > pe
+python3 generate_fig.py
