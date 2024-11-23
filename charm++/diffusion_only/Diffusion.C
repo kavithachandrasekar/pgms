@@ -145,14 +145,16 @@ class Main : public CBase_Main {
   }
 
   void done() {
+#if 1
     Diffusion *diff_obj0= diff_array(0).ckLocal();
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       if (!statsData->objData[obj].migratable)
         continue;
       statsData->from_proc[obj] = diff_obj0->map_obid_pe[obj];
-      std::vector<LBRealType> pos = statsData->objData[obj].position;
-      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
+//      std::vector<LBRealType> pos = statsData->objData[obj].position;
+//      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
     }
+#endif
     const char* filename = "lbdata.dat.out.0";
     FILE *f = fopen(filename, "w");
     if (f==NULL) {
@@ -426,13 +428,31 @@ int Diffusion::get_local_obj_idx(int objHandleId)
 void Diffusion::LoadBalancing() {
 
   for(int knbor=0;knbor<neighborCount;knbor++) {
+
+    std::vector<int> todelete;
     if(toSendLoad[knbor]<0.0) continue;
+    int steps_c = 0;
     while(my_load_after_transfer > 0.0 && toSendLoad[knbor]>0.0) {
+//      steps_c++;
+//      CkPrintf("\nNode-%d, steps_c=%d, obj_heap size=%d", thisIndex, steps_c, obj_heap.size());
+//      if(steps_c > objects.size()+40) { CkPrintf("\nError obj_heap size = %d",obj_heap.size());
+//        break;
+//      }
+
+      for(int i=0;i<todelete.size();i++) {
+        for(int j=0;j<objects.size();j++)
+          if(objects[j].getVertexId() == todelete[i]) {
+            objects.erase(objects.begin()+j);
+            break;
+          }
+      }
+      todelete.clear();
+
       int n_objs = objects.size();
       objectComms.resize(n_objs);
 
       gain_val = new int[n_objs];
-      memset(gain_val, -1, n_objs);
+      memset(gain_val, 100, n_objs);
 
 
       for(int i = 0; i < n_objs; i++) {
@@ -494,18 +514,8 @@ void Diffusion::LoadBalancing() {
 
   obj_arr = new int[n_objs];
 
-  for(int i = 0; i < n_objs; i++) {
-    int sum_bytes = 0;
-    //comm bytes with all neighbors
-    //if(i > objectComms.size()-1) continue;
-//    vector<int> comm_w_nbors = objectComms[i];
-    //compute the sume of bytes of all comms for this obj
-//    for(int j = 0; j < objectComms[i].size(); j++)
-        sum_bytes =  objectComms[i][knbor];//+= objectComms[i][j];
-
-    //This gives higher gain value to objects that have more within node communication
-    gain_val[i] = /*2*objectComms[i][SELF_IDX]*/ - sum_bytes;
-  }
+  for(int i = 0; i < n_objs; i++)
+    gain_val[i] = -objectComms[i][knbor];
 
   // T1: create a heap based on gain values, and its position also.
 
@@ -526,28 +536,32 @@ void Diffusion::LoadBalancing() {
   int n_count = 0;
 #if 1
     DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
-    //counter++;
-    //pop the object id with the least gain (i.e least internal comm compared to ext comm)
-
-//    v_id = counter++;
+//    CkPrintf("\nheap size before = %d", obj_heap.size());
     v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
+
+//    CkPrintf("\nheap size after = %d", obj_heap.size());
 
     /*If the heap becomes empty*/
     if(v_id == -1) {//objects.size()){//v_id==-1) {
       DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
       break;
     }
-    int objHandle = objects[v_id].getVertexId(); 
-    if(!obj_on_node(get_obj_idx(objHandle))) continue;
+    int objHandle = objects[v_id].getVertexId();
+    todelete.push_back(objHandle);
+    if(!obj_on_node(get_obj_idx(objHandle))) {
+//      CkPrintf("\nobject %d not on node", v_id);
+      continue;
+    }
 
 //    CkPrintf("\n On SimNode-%d, popped v_id = %d (handle%d)", thisIndex, v_id, objHandle);
 
     double currLoad = objects[v_id].getVertexLoad();
     if(!objects[v_id].isMigratable()) {
-      //CkPrintf("not migratable \n");
+//      CkPrintf("not migratable \n");
       continue;
     }
-    DEBUGL(("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad));
+
+//    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
 
         DEBUGL(("\n[PE-%d] knbor = %d node = %d load = %lf to_send_total =%lf", thisIndex, knbor,sendToNeighbors[knbor],currLoad,toSendLoad[knbor]));
 

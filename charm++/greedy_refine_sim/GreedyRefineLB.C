@@ -36,7 +36,7 @@
 // a solution is feasible if num migrations <= user-specified limit
 // LOAD_MIG_BAL is used to control tradeoff between maxload and migrations
 // when selecting solutions from the feasible set
-#define LOAD_MIG_BAL 1.003
+#define LOAD_MIG_BAL 1.1
 
 using namespace std;
 

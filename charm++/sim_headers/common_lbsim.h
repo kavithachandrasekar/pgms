@@ -10,10 +10,10 @@ static void load_imb_by_pe(BaseLB::LDStats *statsData) {
       continue;
     }
     double load = 1.0;
-    if(pe==5) load = 1.8;
-    if(pe==14) load = 0.2;
+    //if(pe==5) load = 1.8;
+    //if(pe==14) load = 0.2;
 //    if(pe == 5) load = 4.0;
-//    if(pe%3==0) load = 3.5;
+    if(pe%3==0) load = 3.5;
     //if(pe==5 || pe == 6||pe == 9 || pe ==10) load = 1.0;
     //if(pe==1 || pe == 2 || pe == 13 || pe ==14) load = 2.0;
     statsData->objData[obj].wallTime = load; 
@@ -31,9 +31,9 @@ static void load_imb_by_history(BaseLB::LDStats *statsData) {
     }
     int a=rand()%2;
     if(a)
-      statsData->objData[obj].wallTime *= 0.8;
+      statsData->objData[obj].wallTime *= 0.6;
     else
-      statsData->objData[obj].wallTime *= 1.2;
+      statsData->objData[obj].wallTime *= 1.4;
   }
 }
 
