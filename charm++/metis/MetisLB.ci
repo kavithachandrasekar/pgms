@@ -1,0 +1,17 @@
+mainmodule MetisLB {
+  
+  readonly CProxy_Main mainProxy;
+  readonly CProxy_MetisLB metis_array;
+
+  mainchare Main {
+    entry Main(CkArgMsg *m);
+    entry [reductiontarget] void init();
+    entry [reductiontarget] void done();
+  };
+
+  array [1D] MetisLB{
+    entry void MetisLB();
+    entry [reductiontarget] void receiveTotalTime(double time);
+    entry void AtSync(void);
+  };
+};

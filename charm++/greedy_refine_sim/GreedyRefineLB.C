@@ -125,6 +125,9 @@ class Main : public CBase_Main {
       if (!statsData->objData[obj].migratable)
         continue;
       statsData->from_proc[obj] = greedy_obj->map_obid_pe[obj];
+       std::vector<LBRealType> pos = statsData->objData[obj].position;
+      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
+
     }
     const char* filename = "lbdata.dat.out.0";
     FILE *f = fopen(filename, "w");
