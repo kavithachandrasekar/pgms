@@ -86,6 +86,18 @@ class Main : public CBase_Main {
     CmiPrintf("readStatsMsgs for %d pes starts ... \n", stats_msg_count);
 
     statsDatax->pup(p);
+    obj_imb(statsDatax);
+
+    double pe_load[statsDatax->procs.size()];
+    for(int i=0;i<statsDatax->procs.size();i++)
+      pe_load[i] = 0.0;
+    for(int i = 0; i < statsDatax->objData.size(); i++)
+      pe_load[statsDatax->from_proc[i]] +=  statsDatax->objData[i].wallTime;
+    double max_load = 0.0;
+    for(int i=1;i<statsDatax->procs.size();i++)
+      if(max_load < pe_load[i])
+        max_load = pe_load[i];
+    CkPrintf("\nBefore LB - Max load = %lf", max_load);
 
     CmiPrintf("n_obj: %zu n_migratable: %d \n", statsDatax->objData.size(), statsDatax->n_migrateobjs);
 
@@ -282,12 +294,27 @@ void MetisLB::work()
     CkPrintf("[%d] MetisLB done! \n", CkMyPe());
   }
 
+  int migrations = 0;
   for (int i = 0; i < numVertices; i++)
   {
     if (pemap[i] != ogr->vertices[i].getCurrentPe())
       ogr->vertices[i].setNewPe(pemap[i]);
+      migrations++;
       map_obid_pe[i] = pemap[i];
   }
+
+  CkPrintf("\nMigrations = %d", migrations);
+  double pe_load[stats->procs.size()];
+  for(int i=0;i<stats->procs.size();i++)
+    pe_load[i] = 0.0;
+  for(int i = 0; i < numVertices; i++)
+    pe_load[map_obid_pe[i]] +=  stats->objData[i].wallTime;
+
+  double max_load = 0.0;
+  for(int i=1;i<stats->procs.size();i++)
+    if(max_load < pe_load[i])
+      max_load = pe_load[i];
+  CkPrintf("\nAfter LB - Max load = %lf", max_load);
 
   /** ============================== CLEANUP ================================ */
   ogr->convertDecisions(stats);

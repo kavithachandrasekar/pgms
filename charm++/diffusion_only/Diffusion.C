@@ -426,7 +426,7 @@ int Diffusion::get_local_obj_idx(int objHandleId)
 #include "omp.h"
 
 void Diffusion::LoadBalancing() {
-
+  int migrated_obj_count = 0;
   for(int knbor=0;knbor<neighborCount;knbor++) {
 
     std::vector<int> todelete;
@@ -532,7 +532,6 @@ void Diffusion::LoadBalancing() {
   int counter = 0;
 
 //  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
-  int migrated_obj_count = 0;
   int n_count = 0;
 #if 1
     DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
@@ -598,7 +597,7 @@ void Diffusion::LoadBalancing() {
           DEBUGL(("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total,sendToNeighbors[i]));
         }
     }
-//    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);
+    CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);
     CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
 
     contribute(cbm);//sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
