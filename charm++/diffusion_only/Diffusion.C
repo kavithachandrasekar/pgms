@@ -1082,6 +1082,7 @@ void Diffusion::InitializeObjHeap(int *obj_arr, int n, int *gain_val)
 void Diffusion::LoadBalancingCentroids()
 {
   int n_objs = objects.size(); // objects only includes objects on my node?
+  toSendNeighborsLoad.resize(neighborCount, 0.0);
 
   // For each object, store its distance to current centroid (as gain val)
   // and store dist to all neighboring node centroids

@@ -131,7 +131,7 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
 
   if (thisIndex == to)
   {
-    if (from != -1)
+    if (from != -1 && to != from)
     {
       // CkPrintf("Node-%d, adding neighbor %d\n", thisIndex, from);
       sendToNeighbors.push_back(from);
@@ -140,7 +140,7 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
 
   if (thisIndex == from)
   {
-    assert(to != -1);
+    assert(to != -1 && to != from);
     // CkPrintf("Node-%d, adding neighbor %d\n", thisIndex, to);
     sendToNeighbors.push_back(to);
   }
@@ -237,6 +237,7 @@ void Diffusion::proposeNbor(int nborId)
       std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end())
   {
     agree = 1;
+    assert(nborId != thisIndex);
     sendToNeighbors.push_back(nborId);
     DEBUGL2(("\nNode-%d, round =%d Agreeing and adding %d ", thisIndex, round, nborId));
   }
@@ -252,6 +253,7 @@ void Diffusion::okayNbor(int agree, int nborId)
   if (sendToNeighbors.size() < NUM_NEIGHBORS && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end())
   {
     // CkPrintf("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor", thisIndex, round, nborId);
+    assert(nborId != thisIndex);
     sendToNeighbors.push_back(nborId);
   }
 
