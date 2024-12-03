@@ -1087,6 +1087,8 @@ void Diffusion::LoadBalancingCentroids()
   // For each object, store its distance to current centroid (as gain val)
   // and store dist to all neighboring node centroids
   std::vector<std::vector<double>> map_obj_to_neighbor_dist(n_objs);
+  std::vector<double> map_self_to_neighbor_dist(neighborCount);
+
   std::vector<double> map_obj_to_load(n_objs);
   std::vector<int> obj_local_to_global(n_objs);
 
@@ -1103,7 +1105,6 @@ void Diffusion::LoadBalancingCentroids()
     // object load is just wall time
     map_obj_to_load[i] = statsData->objData[obj_idx].wallTime;
 
-    // current object is local
     std::vector<LBRealType> obj_pos = statsData->objData[obj_idx].position;
 
     // gain_value is just the distance to the current centroid
@@ -1116,6 +1117,7 @@ void Diffusion::LoadBalancingCentroids()
     {
       std::vector<LBRealType> n_centroid = getCentroid(sendToNeighbors[n]);
       map_obj_to_neighbor_dist[i][n] = computeDistance(obj_pos, n_centroid);
+      map_self_to_neighbor_dist[n] = computeDistance(curr_centroid, n_centroid);
     }
   }
 
@@ -1127,211 +1129,119 @@ void Diffusion::LoadBalancingCentroids()
   }
 
   // SORT: sort the objects based on gain value (in increasing order)
-  // bug? should be in decreasing order?
-  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end(), std::greater<std::pair<double, int>>());
+  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end());
 
   vector<int> nbor_ids(neighborCount);
   std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
 
-#ifdef NEWSTRAT2
-
   vector<int> avail_objects(n_objs);
   std::iota(avail_objects.begin(), avail_objects.end(), 0);
-#endif
 
-  // Migration: iteratively picking item with most gain value
+  // ------ COMPUTE NEIGHBOR (CLOSENESS, LOAD) METRIC -------
+  // compute closeness for each neighbor (inverse distance)
+  std::vector<std::pair<double, int>> neighbor_closeness(neighborCount);
+    for (int n = 0; n < neighborCount; n++)
+    {
+    neighbor_closeness[n] = std::make_pair(1 / map_self_to_neighbor_dist[n], n);
+  }
+
+  // normalize closeness
+  double total_closeness = std::accumulate(neighbor_closeness.begin(), neighbor_closeness.end(), 0.0,
+                                           [](double sum, std::pair<double, int> i)
+                                           { return sum + i.first; });
+    for (int n = 0; n < neighborCount; n++)
+    {
+    neighbor_closeness[n].first /= total_closeness;
+    }
+
+  // compute load for each neighbor
+  std::vector<double> neighbor_load(neighborCount);
+  for (int n = 0; n < neighborCount; n++)
+    neighbor_load[n] = loadNeighbors[n];
+
+  // normalize load
+  double total_load = std::accumulate(neighbor_load.begin(), neighbor_load.end(), 0.0);
+  for (int n = 0; n < neighborCount; n++)
+    neighbor_load[n] /= total_load;
+
+  // create combined metric
+  std::vector<std::pair<double, int>> neighbor_metric(neighborCount);
+  for (int n = 0; n < neighborCount; n++)
+    neighbor_metric[n] = std::make_pair(neighbor_closeness[n].first + neighbor_load[n], n);
+
+  // ------ COMPUTE NEIGHBOR (CLOSENESS, LOAD) METRIC -------
   while (my_load_after_transfer > 0)
   {
-#ifdef NEWSTRAT2
-    if (obj_gain_pairs.empty())
+
+    if (obj_gain_pairs.empty() || neighbor_metric.empty())
       break;
 
-    // pop front item out of sorted list (highest gain value)
-    auto front = obj_gain_pairs.front();
-    obj_gain_pairs.erase(obj_gain_pairs.begin());
+    // sort neighbors by metric in descending order
+    std::sort(neighbor_metric.begin(), neighbor_metric.end(), [&](std::pair<double, int> i, std::pair<double, int> j)
+              { return i.first > j.first; });
 
-    int obj_local_idx = front.second;
-    int obj_gain = front.first;
+    // neighbor with highest combined metric
+    int curr_neighbor = neighbor_metric[0].second;
 
-    int obj_global_idx = obj_local_to_global[obj_local_idx];
-
-    if (map_obid_pe[obj_global_idx] != thisIndex)
-      CkAbort("ERROR: Object %d not on node %d\n", obj_global_idx, thisIndex);
-
-    if (!statsData->objData[obj_global_idx].migratable)
-      CkAbort("Object in objects list must be migratable: obj %d on pe %d\n", obj_global_idx, thisIndex);
-
-    double currLoad = map_obj_to_load[obj_local_idx];
-
-    // sort neighbors by distance to this object
-    std::vector<std::pair<double, int>> neighbor_dist_pairs(neighborCount);
-    for (int n = 0; n < neighborCount; n++)
+    if (toSendLoad[curr_neighbor] <= 0)
     {
-      int localNeighborId = n;
-      int objDist = map_obj_to_neighbor_dist[obj_local_idx][localNeighborId];
-      neighbor_dist_pairs[localNeighborId] = std::make_pair(objDist, localNeighborId);
+      neighbor_metric.erase(neighbor_metric.begin());
+      continue;
     }
-    std::sort(neighbor_dist_pairs.begin(), neighbor_dist_pairs.end());
 
-    // find the first neighbor that can take this object
-    int localToSendNeighbor = -1;
-    for (int n = 0; n < neighborCount; n++)
+    // compute closeness and size for each object relative to thsi neighbor
+    std::vector<std::pair<double, int>> obj_metric_pairs(avail_objects.size());
+    double sum_of_loads = std::accumulate(map_obj_to_load.begin(), map_obj_to_load.end(), 0.0);
+    double sum_of_closeness = std::accumulate(map_obj_to_neighbor_dist.begin(), map_obj_to_neighbor_dist.end(), 0.0,
+                                              [&](double sum, std::vector<double> i)
+                                              { return sum + 1 / i[curr_neighbor]; });
+    for (int i = 0; i < avail_objects.size(); i++)
     {
-      int local_n_id = neighbor_dist_pairs[n].second;
-      if (toSendLoad[local_n_id] > 0.0 && currLoad <= toSendLoad[local_n_id])
+      int obj_local_idx = avail_objects[i];
+      double obj_closeness = (1 / map_obj_to_neighbor_dist[obj_local_idx][curr_neighbor]) / sum_of_closeness;
+      double obj_load = map_obj_to_load[obj_local_idx] / sum_of_loads;
+
+      assert(obj_load >= 0 && obj_load <= 1);
+      assert(obj_closeness >= 0 && obj_closeness <= 1);
+      obj_metric_pairs[i] = std::make_pair(obj_closeness + obj_load, obj_local_idx);
+    }
+
+    // sort objects by metric in descending order
+    std::sort(obj_metric_pairs.begin(), obj_metric_pairs.end(), [&](std::pair<double, int> i, std::pair<double, int> j)
+              { return i.first > j.first; });
+
+    // find the first object that can be sent to this neighbor
+    int obj_local_idx = -1;
+    double obj_load = -1;
+    for (int i = 0; i < obj_metric_pairs.size(); i++)
+    {
+      if (map_obj_to_load[obj_local_idx] <= toSendLoad[curr_neighbor])
       {
-        localToSendNeighbor = local_n_id;
+        obj_local_idx = obj_metric_pairs[i].second;
+        obj_load = map_obj_to_load[obj_local_idx];
         break;
       }
     }
 
-    // no neighbor chosen, obj doesn't migrate
-    if (localToSendNeighbor == -1)
+    // no object chosen, neighbor doesn't get any more objects (EVER)
+    if (obj_local_idx == -1)
+    {
+      neighbor_metric.erase(neighbor_metric.begin());
       continue;
+    }
 
     // object and neighbor have been chosen
-    int globalNeighborId = sendToNeighbors[localToSendNeighbor];
-    toSendLoad[localToSendNeighbor] -= currLoad;
-    loadNeighbors[localToSendNeighbor] += currLoad;
-    my_load_after_transfer -= currLoad;
+    int obj_global_idx = obj_local_to_global[obj_local_idx];
+    int globalNeighborId = sendToNeighbors[curr_neighbor];
 
-    // global updates
-    // diff0->map_obid_pe[obj_global_idx] = globalNeighborId;
-    nodeGroup->map_obid_pe[obj_global_idx] = globalNeighborId;
-
-    // Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
-    // diffRecv->my_load_after_transfer += currLoad;
-    // thisProxy[globalNeighborId].updateLoad(currLoad); // TODO: objects should be buffered because this could arrive before LoadBalancingCentroids
-
-    toSendNeighborsLoad[localToSendNeighbor] += currLoad;
-
-#elif defined(NEWSTRAT1)
-
-    // find best neighbor (highest load requested)
-    auto nbor_iterator = std::max_element(nbor_ids.begin(), nbor_ids.end(), [&](int i, int j)
-                                          { return toSendLoad[i] > toSendLoad[j]; });
-
-    int neighbor = *nbor_iterator;
-    if (toSendLoad[neighbor] <= 0)
-      break;
-
-    assert(neighbor != SELF_IDX && neighbor != EXT_IDX); // this should be covered by the above check
-
-    if (avail_objects.empty())
-      break; // stop when no more objects can be sent
-
-    // sort objects
-    std::vector<std::pair<int, int>> obj_dist_pairs;
-    for (int local_avail_obj : avail_objects)
-    {
-      assert(local_avail_obj >= 0 && local_avail_obj < n_objs);
-      obj_dist_pairs.push_back(std::make_pair(map_obj_to_neighbor_dist[local_avail_obj][neighbor], local_avail_obj));
-    }
-    std::sort(obj_dist_pairs.begin(), obj_dist_pairs.end(), std::less<std::pair<int, int>>());
-
-    // pick best object that fits the load
-    int best_obj_dist = -1;
-    int obj_id = -1;
-    int obj_dist = -1;
-    double obj_load = -1;
-
-    for (auto &obj_dist_pair : obj_dist_pairs)
-    {
-      obj_id = obj_dist_pair.second;
-      obj_dist = obj_dist_pair.first;
-      obj_load = objects[obj_id].getVertexLoad();
-
-      if (obj_load <= toSendLoad[neighbor])
-      {
-        best_obj_dist = obj_dist;
-        break;
-      }
-    }
-
-    if (best_obj_dist == -1)
-      break; // no object fits the load for the neighbor with highest capacity... algorithm over
-
-    // best object and neighbor chosen! do migration:
-    int localToSendNeighbor = neighbor;
-    int globalNeighborId = sendToNeighbors[localToSendNeighbor];
-    toSendLoad[localToSendNeighbor] -= obj_load;
-    loadNeighbors[localToSendNeighbor] += obj_load;
+    toSendLoad[curr_neighbor] -= obj_load;
+    loadNeighbors[curr_neighbor] += obj_load;
     my_load_after_transfer -= obj_load;
 
-    // global updates
-    int obj_global_idx = obj_local_to_global[obj_id];
-    avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_id), avail_objects.end());
-
     nodeGroup->map_obid_pe[obj_global_idx] = globalNeighborId;
-    thisProxy[globalNeighborId].updateLoad(obj_load); // TODO: RACE CONDITION!
-
-#elif defined(ORIGSTRAT)
-    if (obj_gain_pairs.empty())
-      break;
-
-    // pop front item out of sorted list (highest gain value)
-    auto front = obj_gain_pairs.front();
-    obj_gain_pairs.erase(obj_gain_pairs.begin());
-
-    int obj_local_idx = front.second;
-    int obj_gain = front.first;
-
-    int obj_global_idx = obj_local_to_global[obj_local_idx];
-
-    if (map_obid_pe[obj_global_idx] != thisIndex)
-      CkAbort("ERROR: Object %d not on node %d\n", obj_global_idx, thisIndex);
-
-    if (!statsData->objData[obj_global_idx].migratable)
-      CkAbort("Object in objects list must be migratable: obj %d on pe %d\n", obj_global_idx, thisIndex);
-
-    double currLoad = map_obj_to_load[obj_local_idx];
-
-    // compute (neighbor_distance, neighbor_id) pairs for this object
-    std::vector<std::pair<double, int>> neighbor_dist_pairs(neighborCount);
-    for (int n = 0; n < neighborCount; n++)
-    {
-      int localNeighborId = n;
-      int objDist = map_obj_to_neighbor_dist[obj_local_idx][localNeighborId];
-      neighbor_dist_pairs[localNeighborId] = std::make_pair(objDist, localNeighborId);
-    }
-
-    // sort the neighbors based on distance to this object
-    std::sort(neighbor_dist_pairs.begin(), neighbor_dist_pairs.end());
-
-    // find the first neighbor that can take this object
-    int localToSendNeighbor = -1;
-    for (int n = 0; n < neighborCount; n++)
-    {
-      int local_n_id = neighbor_dist_pairs[n].second;
-      if (toSendLoad[local_n_id] > 0.0 && currLoad <= toSendLoad[local_n_id])
-      {
-        localToSendNeighbor = local_n_id;
-        break;
-      }
-    }
-
-    // no neighbor chosen, obj doesn't migrate
-    if (localToSendNeighbor == -1)
-      continue;
-
-    // object and neighbor have been chosen
-    // objects.erase(objects.begin() + obj_local_idx); // removing object from local list
-    // localToSendNeighbor is the id of the neighbor in local context (used in sendToNeighbors, toSendLoad, etc.)
-    // globalNeighborId is the global id of the neighbor (used in map_obid_pe and other global contexts)
-    int globalNeighborId = sendToNeighbors[localToSendNeighbor];
-    toSendLoad[localToSendNeighbor] -= currLoad;
-    loadNeighbors[localToSendNeighbor] += currLoad;
-    my_load_after_transfer -= currLoad;
-
-    // global updates
-    // diff0->map_obid_pe[obj_global_idx] = globalNeighborId;
-    nodeGroup->map_obid_pe[obj_global_idx] = globalNeighborId;
-
-    // Diffusion *diffRecv = diff_array(globalNeighborId).ckLocal();
-    // diffRecv->my_load_after_transfer += currLoad;
-    thisProxy[globalNeighborId].updateLoad(currLoad); // TODO: objects should be buffered because this could arrive before LoadBalancingCentroids
-    // thisProxy[globalNeighborId].addObject(obj_global_idx);
-#endif
+    toSendNeighborsLoad[curr_neighbor] += obj_load;
+    // CkPrintf("Migrating object %d to neighbor %d\n", obj_global_idx, globalNeighborId);
+    avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_local_idx), avail_objects.end());
   }
 
   CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
