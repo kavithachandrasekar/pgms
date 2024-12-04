@@ -29,7 +29,10 @@ void Diffusion::createCommList() {
   sortArr(ebytes, numNodes, nbors);
 }
 void Diffusion::findNBors(int do_again) {
-  if(round==0) createCommList();
+  if(round==0) {
+    round++;
+    createCommList();
+  }
   requests_sent = 0;
   if(!do_again || round == 100) {
     neighborCount = sendToNeighbors.size();
@@ -69,6 +72,10 @@ void Diffusion::findNBors(int do_again) {
 }
 
 void Diffusion::proposeNbor(int nborId) {
+  if(round==0) {
+    round++;
+    createCommList();
+  }
   int agree = 0;
   if((NUM_NEIGHBORS-sendToNeighbors.size())-requests_sent > 0 && sendToNeighbors.size() < NUM_NEIGHBORS &&
       std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
