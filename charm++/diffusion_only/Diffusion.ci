@@ -8,6 +8,7 @@ module Diffusion {
 #ifdef STANDALONE_DIFF
   readonly CProxy_Main mainProxy;
   readonly CProxy_Diffusion diff_array;
+  readonly CProxy_NodeCache node_cache;
 
   mainchare Main {
     entry Main(CkArgMsg *m);
@@ -15,11 +16,11 @@ module Diffusion {
     entry [reductiontarget] void done();
   };
 #endif
-/*
+
   nodegroup NodeCache {
     entry NodeCache();
   }
-*/
+
   array [1D] Diffusion {
     entry Diffusion(int num_nodes);
     entry [reductiontarget] void startDiffusion();

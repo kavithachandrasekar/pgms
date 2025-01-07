@@ -48,8 +48,8 @@ public:
     bool obj_on_node(int objId);
     void LoadBalancing();
     int get_obj_idx(int objHandleId);
-    std::vector<int>map_obj_id;
-    std::vector<int>map_obid_pe;
+//    std::vector<int>map_obj_id;
+//    std::vector<int>map_obid_pe;
     int edgeCount;
     std::vector<int> edge_indices;
 private:
@@ -97,7 +97,8 @@ private:
     void InitializeObjHeap(int* obj_arr, int n, int* gain_val);
     void createCommList();
 public:
-    BaseLB::LDStats *statsData;
+//    BaseLB::LDStats *statsData;
+    NodeCache* node_cache_obj;
     double my_load;
     double my_load_after_transfer;
 };

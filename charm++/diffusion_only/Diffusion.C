@@ -34,6 +34,8 @@
 #define BYTES 512
 #define SIZE 1000
 
+BaseLB::LDStats *statsData;
+
 #include "Neighbor_list.C"
 
 using std::vector;
@@ -41,9 +43,20 @@ using std::vector;
 #ifdef STANDALONE_DIFF
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_Diffusion diff_array;
+/*readonly*/ CProxy_NodeCache node_cache;
+
+class NodeCache : public CBase_NodeCache
+{
+public:
+  NodeCache(){
+    contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
+  }
+  std::vector<int>map_obj_id;
+  std::vector<int>map_obid_pe;
+};
 
 class Main : public CBase_Main {
-  BaseLB::LDStats *statsData;
+//  BaseLB::LDStats *statsData;
   obj_imb_funcptr obj_imb;
   int numNodes;
   int stats_msg_count;
@@ -63,6 +76,9 @@ class Main : public CBase_Main {
     if (f==NULL) {
       CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", filename);
     }
+
+    node_cache = CProxy_NodeCache::ckNew();
+
     BaseLB::LDStats *statsDatax = new BaseLB::LDStats;
     statsDatax->objData.reserve(SIZE);
     statsDatax->from_proc.reserve(SIZE);
@@ -105,52 +121,46 @@ class Main : public CBase_Main {
     statsData->makeCommHash();
     numNodes = statsData->procs.size();
   //  statsData->print();
-    diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
+//    diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
   }
+  int count = 0;
   void init(){
+    count++;
+    if(count < 2) {
+      diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
+      return;
+    }
+    NodeCache* node_cache_obj = node_cache.ckLocalBranch();
 //    CkPrintf("\nDone init");
     for(int i=0;i<numNodes;i++) {
       Diffusion *diff_obj= diff_array(i).ckLocal();
-      diff_obj->statsData = statsData;
+    //  diff_obj->statsData = statsData;
       if(i==0) {
         obj_imb(statsData);
-        diff_obj->map_obj_id.reserve(statsData->objData.size());
-        diff_obj->map_obid_pe.reserve(statsData->objData.size());
+        node_cache_obj->map_obj_id.reserve(statsData->objData.size());
+        node_cache_obj->map_obid_pe.reserve(statsData->objData.size());
         for(int obj = 0; obj < statsData->objData.size(); obj++) {
           LDObjData &oData = statsData->objData[obj];
           if (!oData.migratable)
             continue;
 //          CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
-          diff_obj->map_obj_id[obj] = oData.objID();
-          diff_obj->map_obid_pe[obj] = statsData->from_proc[obj];
+          node_cache_obj->map_obj_id[obj] = oData.objID();
+          node_cache_obj->map_obid_pe[obj] = statsData->from_proc[obj];
         }
       }
     }
     CkPrintf("\ncomm edges count = %zu", statsData->commData.size());
-    Diffusion *diff_obj0 = diff_array(0).ckLocal();
-
-    for(int edge = 0; edge < statsData->commData.size(); edge++) {
-      LDCommData &commData = statsData->commData[edge];
-      if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
-        LDObjKey from = commData.sender;
-
-        int fromNode = diff_obj0->obj_node_map(diff_obj0->get_obj_idx(from.objID()));
-        Diffusion *diff_obj = diff_array(fromNode).ckLocal();
-        diff_obj->edgeCount++;
-        diff_obj->edge_indices.push_back(edge);
-      }
-    }
-
     diff_array.AtSync();
   }
 
   void done() {
 #if 1
     Diffusion *diff_obj0= diff_array(0).ckLocal();
+    NodeCache* node_cache_obj = node_cache.ckLocalBranch();
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       if (!statsData->objData[obj].migratable)
         continue;
-      statsData->from_proc[obj] = diff_obj0->map_obid_pe[obj];
+      statsData->from_proc[obj] = /*diff_obj0*/node_cache_obj->map_obid_pe[obj];
 //      std::vector<LBRealType> pos = statsData->objData[obj].position;
 //      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
     }
@@ -188,6 +198,7 @@ Diffusion::Diffusion(int node_count){
   finished = false;
   edgeCount = 0;
   edge_indices.reserve(10000);
+  node_cache_obj = node_cache.ckLocalBranch();
   if(thisIndex==0)
   {
     CkPrintf("Node count = %d", numNodes);
@@ -198,6 +209,17 @@ Diffusion::Diffusion(int node_count){
 Diffusion::~Diffusion() { }
 
 void Diffusion::AtSync() {
+  for(int edge = 0; edge < statsData->commData.size(); edge++) {
+    LDCommData &commData = statsData->commData[edge];
+    if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
+      LDObjKey from = commData.sender;
+
+      int fromNode = obj_node_map(get_obj_idx(from.objID()));
+      edgeCount++;
+      edge_indices.push_back(edge);
+    }
+  }
+
   contribute(CkCallback(CkReductionTarget(Diffusion, createObjs), thisProxy));
 }
 
@@ -277,7 +299,7 @@ void Diffusion::createObjList(){
 
 bool Diffusion::obj_on_node(int objId) {
   Diffusion *diff0= diff_array(0).ckLocal();
-  if(thisIndex == diff0->map_obid_pe[objId]) return true;
+  if(thisIndex == node_cache_obj->map_obid_pe[objId]) return true;
   return false;
 }
 
@@ -286,7 +308,7 @@ int Diffusion::get_obj_idx(int objHandleId) {
   Diffusion* diff0 = diff_array(0).ckLocal();
   for(int i=0; i< statsData->objData.size(); i++) {
 //    CkPrintf("\nPrinting[%d] = %d", i, diff0->map_obj_id[i]);
-    if(diff0->map_obj_id[i] == objHandleId) {
+    if(node_cache_obj->map_obj_id[i] == objHandleId) {
 //      CkPrintf("\nReturning i=%d",i);
       return i;
     }
@@ -297,7 +319,7 @@ int Diffusion::get_obj_idx(int objHandleId) {
 
 int Diffusion::obj_node_map(int objId) {
   Diffusion *diff0= diff_array(0).ckLocal();
-  return diff0->map_obid_pe[objId];
+  return node_cache_obj->map_obid_pe[objId];
 }
 
 void Diffusion::startDiffusion() {
@@ -576,10 +598,10 @@ void Diffusion::LoadBalancing() {
 //        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
 
         Diffusion *diff0= diff_array(0).ckLocal();
-        diff0->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
+//        diff0->map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
 
         Diffusion *diffRecv = diff_array(receiverNodePE).ckLocal();
-        diffRecv->my_load_after_transfer += currLoad;
+//        diffRecv->my_load_after_transfer += currLoad; //TODO: Fix for after run stats
         my_load_after_transfer -= currLoad;
 //        CkPrintf("\nSending load %lf from node-%d(load %lf) to node-%d (load %lf)", currLoad, thisIndex, my_load_after_transfer, receiverNodePE,diffRecv->my_load_after_transfer);
         loadNeighbors[knbor] += currLoad;
