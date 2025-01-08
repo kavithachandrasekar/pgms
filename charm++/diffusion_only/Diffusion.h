@@ -23,6 +23,7 @@ public:
     void LoadReceived(int objId, int fromPE);
     void MaxLoad(double val);
     void AvgLoad(double val);
+    void updateLoad(double load);
     void finishLB();
     int get_local_obj_idx(int objHandleId);
 
@@ -30,6 +31,7 @@ public:
                               double *toRecvLd, void (*func)(void*), void* obj);
 
     int obj_node_map(int objId);
+    int obj_updated_node_map(int objId);
 
     void createObjs();
     void createObjList();

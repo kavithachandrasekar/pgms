@@ -33,6 +33,7 @@ module Diffusion {
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);
     entry void AtSync(void);
+    entry void updateLoad(double load);
     entry [reductiontarget] void createObjs(void);
     entry void ReceiveLoadInfo(int itr, double load, int node);
     entry void PseudoLoad(int itr, double load, int node);

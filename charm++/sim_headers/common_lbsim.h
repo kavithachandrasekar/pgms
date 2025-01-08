@@ -54,6 +54,10 @@ template <typename T> static void computeCommBytes(BaseLB::LDStats *statsData, T
       if(fromobj == -1 || toobj == -1) continue;
       int fromNode = obj->obj_node_map(fromobj);
       int toNode = obj->obj_node_map(toobj);
+      if(!before) {
+        fromNode = obj->obj_updated_node_map(fromobj);
+        toNode = obj->obj_updated_node_map(toobj);
+      }
 
       //store internal bytes in the last index pos ? -q
       if(fromNode == toNode)
