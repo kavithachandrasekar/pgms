@@ -134,7 +134,7 @@ class Main : public CBase_Main {
     NodeCache* node_cache_obj = node_cache.ckLocalBranch();
 //    CkPrintf("\nDone init");
     for(int i=0;i<numNodes;i++) {
-      Diffusion *diff_obj= diff_array(i).ckLocal();
+    //  Diffusion *diff_obj= diff_array(i).ckLocal();
     //  diff_obj->statsData = statsData;
       if(i==0) {
         obj_imb(statsData);
@@ -275,10 +275,11 @@ void Diffusion::createObjList(){
   int start_node_obj_idx = 0; //this should be taken from map in stencil3d
 
   int total_objs = statsData->objData.size();
-
+  local_map_obid_pe.reserve(statsData->objData.size());
   for(int obj = 0 ; obj < statsData->objData.size(); obj++) {
     LDObjData &oData = statsData->objData[obj];
     int pe = statsData->from_proc[obj];
+    local_map_obid_pe[obj] = statsData->from_proc[obj];
     if(pe != thisIndex) continue;
     if (!oData.migratable) {
       if (!statsData->procs[pe].available)
@@ -468,7 +469,7 @@ void Diffusion::LoadBalancing() {
 //      if(steps_c > objects.size()+40) { CkPrintf("\nError obj_heap size = %d",obj_heap.size());
 //        break;
 //      }
-
+/*
       for(int i=0;i<todelete.size();i++) {
         for(int j=0;j<objects.size();j++)
           if(objects[j].getVertexId() == todelete[i]) {
@@ -477,7 +478,7 @@ void Diffusion::LoadBalancing() {
           }
       }
       todelete.clear();
-
+*/
       int n_objs = objects.size();
       objectComms.resize(n_objs);
 
@@ -506,9 +507,9 @@ void Diffusion::LoadBalancing() {
 
         if(fromobj == -1 || toobj == -1) continue;
 
-        int fromNode = obj_node_map(fromobj);
+        int fromNode = local_map_obid_pe[fromobj];//;obj_node_map(fromobj);
         if(fromNode != thisIndex) continue;
-        int toNode = obj_node_map(toobj);
+        int toNode = local_map_obid_pe[toobj];//obj_node_map(toobj);
 
         //store internal bytes in the last index pos ? -q
         if(fromNode == toNode) {
@@ -577,7 +578,6 @@ void Diffusion::LoadBalancing() {
       break;
     }
     int objHandle = objects[v_id].getVertexId();
-    todelete.push_back(objHandle);
     if(!obj_on_node(get_obj_idx(objHandle))) {
 //      CkPrintf("\nobject %d not on node", v_id);
       continue;
@@ -591,6 +591,8 @@ void Diffusion::LoadBalancing() {
       continue;
     }
 
+    todelete.push_back(objHandle);
+    objects.erase(objects.begin()+v_id, objects.begin()+v_id+1);
 //    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
 
         DEBUGL(("\n[PE-%d] knbor = %d node = %d load = %lf to_send_total =%lf", thisIndex, knbor,sendToNeighbors[knbor],currLoad,toSendLoad[knbor]));
@@ -607,7 +609,7 @@ void Diffusion::LoadBalancing() {
 //        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
 
         node_cache_obj->updated_map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
-
+        local_map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
         diff_array(receiverNodePE).updateLoad(currLoad);
 
         my_load_after_transfer -= currLoad;

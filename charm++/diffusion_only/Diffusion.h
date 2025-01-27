@@ -54,6 +54,7 @@ public:
 //    std::vector<int>map_obid_pe;
     int edgeCount;
     std::vector<int> edge_indices;
+    std::vector<int> local_map_obid_pe;
 private:
     // aggregate load received
     int itr;
