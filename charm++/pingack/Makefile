@@ -1,6 +1,7 @@
 -include ../../common.mk
 SRC=../../../src
-CHARMC=../../../bin/charmc $(OPTS)
+#CHARMC=../../../bin/charmc $(OPTS)
+CHARMC=../../../../../mpi-linux-x86_64-smp/bin/charmc $(OPTS)
 
 OBJS = pingack.o
 OBJS_FIXED = pingack_fixedmsg.o
@@ -11,7 +12,7 @@ pgm: $(OBJS)
 	$(CHARMC) -language charm++ -o pgm $(OBJS)
 
 pgm_fixed: $(OBJS_FIXED)
-	$(CHARMC) -tracemode projections -language charm++ -o pgm_fixed $(OBJS_FIXED)
+	$(CHARMC) -language charm++ -o pgm_fixed $(OBJS_FIXED)
 
 pgm.prj: $(OBJS)
 	$(CHARMC) -tracemode projections -language charm++ -o pgm.prj $(OBJS)
