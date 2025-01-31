@@ -48,12 +48,15 @@ using std::vector;
 class NodeCache : public CBase_NodeCache
 {
 public:
-  NodeCache(){
-    contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
-  }
   std::vector<int>map_obj_id;
   std::vector<int>map_obid_pe;
   std::vector<int>updated_map_obid_pe;
+  std::vector<std::vector<LBRealType>> map_pe_centroid;
+  BaseLB::LDStats *statsData;
+  NodeCache(){
+    statsData = new BaseLB::LDStats;
+    contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
+  }
 };
 
 class Main : public CBase_Main {
@@ -61,6 +64,7 @@ class Main : public CBase_Main {
   obj_imb_funcptr obj_imb;
   int numNodes;
   int stats_msg_count;
+  NodeCache* node_cache_obj;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
@@ -79,8 +83,9 @@ class Main : public CBase_Main {
     }
 
     node_cache = CProxy_NodeCache::ckNew();
+    node_cache_obj = node_cache.ckLocalBranch();
 
-    BaseLB::LDStats *statsDatax = new BaseLB::LDStats;
+    BaseLB::LDStats *statsDatax = node_cache_obj->statsData;//new BaseLB::LDStats;
     statsDatax->objData.reserve(SIZE);
     statsDatax->from_proc.reserve(SIZE);
     statsDatax->to_proc.reserve(SIZE);
@@ -141,7 +146,19 @@ class Main : public CBase_Main {
         node_cache_obj->map_obj_id.reserve(statsData->objData.size());
         node_cache_obj->map_obid_pe.reserve(statsData->objData.size());
         node_cache_obj->updated_map_obid_pe.reserve(statsData->objData.size());
+        node_cache_obj->map_pe_centroid = std::vector<std::vector<LBRealType>>(numNodes, std::vector<LBRealType>(3, 0.0));
+
+        // centroid relevant variables
+        int positionDim = statsData->objData[0].position.size();
+        std::vector<std::vector<LBRealType>> pe_centroids(numNodes, std::vector<LBRealType>(positionDim, 0.0));
+        std::vector<int> pe_obj_count(numNodes, 0);
+
         for(int obj = 0; obj < statsData->objData.size(); obj++) {
+          int obj_pe = statsData->from_proc[obj];
+          std::vector<LBRealType> obj_pos = statsData->objData[obj].position;
+          for (int comp = 0; comp < positionDim; comp++)
+            pe_centroids[obj_pe][comp] += obj_pos[comp];
+          pe_obj_count[obj_pe]++;
           LDObjData &oData = statsData->objData[obj];
           if (!oData.migratable)
             continue;
@@ -152,18 +169,40 @@ class Main : public CBase_Main {
         }
       }
     }
+
+    for (int i = 0; i < numNodes; i++)
+    {
+      for (int comp = 0; comp < positionDim; comp++)
+      {
+        pe_centroids[i][comp] /= pe_obj_count[i];
+      }
+    }
+
+    node_cache_obj->map_pe_centroid = pe_centroids;
+
+    if (centroid)
+    {
+      CkPrintf("Using CENTROID approach\n");
+      // finding aggregate centroids
+    }
+    else
+    {
+      CkPrintf("Using COMM approach\n");
+    }
+
+    GlobalMap *maps = nodeGroup;
+
     CkPrintf("\ncomm edges count = %zu", statsData->commData.size());
     diff_array.AtSync();
   }
 
   void done() {
 #if 1
-    Diffusion *diff_obj0= diff_array(0).ckLocal();
     NodeCache* node_cache_obj = node_cache.ckLocalBranch();
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       if (!statsData->objData[obj].migratable)
         continue;
-      statsData->from_proc[obj] = /*diff_obj0*/node_cache_obj->updated_map_obid_pe[obj];
+      statsData->from_proc[obj] = node_cache_obj->updated_map_obid_pe[obj];
 //      std::vector<LBRealType> pos = statsData->objData[obj].position;
 //      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
     }
@@ -202,6 +241,8 @@ Diffusion::Diffusion(int node_count){
   edgeCount = 0;
   edge_indices.reserve(10000);
   node_cache_obj = node_cache.ckLocalBranch();
+
+
   if(thisIndex==0)
   {
     CkPrintf("Node count = %d", numNodes);
