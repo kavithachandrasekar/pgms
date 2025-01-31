@@ -64,19 +64,49 @@ class Main : public CBase_Main {
   obj_imb_funcptr obj_imb;
   int numNodes;
   int stats_msg_count;
+  bool centroid;
   NodeCache* node_cache_obj;
+  char *output_filename;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
-    if(m->argc > 1) {
-      int fn_type =  atoi(m->argv[1]);
-      if(fn_type == 1)
-        obj_imb = (obj_imb_funcptr) load_imb_by_pe;
-      else if(fn_type == 2)
-        obj_imb = (obj_imb_funcptr) load_imb_by_history;
+    if (m->argc != 5)
+    {
+      CkPrintf("Usage: ./Diffusion <load_imb_fn: 1,2,3,4>, <filename>, <comm/centroid: 1,2>, <output filename>\n");
+      CkExit();
     }
-    const char* filename = "lbdata.dat.0";
-        int i;
+    int fn_type = atoi(m->argv[1]);
+
+    // injecting load imbalance
+    if (fn_type == 1)
+      // for 1/3 PEs, every object on that PE has load set to 3.5
+      // on all other PEs, every object has load set to 1.0
+      // TODO: what was the original load? its just trashed?
+      obj_imb = (obj_imb_funcptr)load_imb_by_pe;
+    else if (fn_type == 2)
+      //  randomly multiply object load by 0.8 or 1.2 (50% chance) for all objects
+      obj_imb = (obj_imb_funcptr)load_imb_by_history;
+    else if (fn_type == 3)
+    // randomly inject load on 1 PE
+      obj_imb = (obj_imb_funcptr)load_imb_rand_inject;
+    else if (fn_type == 4)
+      // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
+      obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
+    else if (fn_type == 5)
+      // all pe randomly increase or decrease by up to %20
+      obj_imb = (obj_imb_funcptr)load_imb_all_on_pe;
+    else if (fn_type == 6)
+      obj_imb = (obj_imb_funcptr)load_setconst;
+    else
+    { 
+      CkPrintf("No load imbalance injected\n");
+      obj_imb = (obj_imb_funcptr)no_imb;
+    }
+
+    centroid = atoi(m->argv[3]) == 2;
+    output_filename = m->argv[4];
+
+    const char *filename = m->argv[2];
     FILE *f = fopen(filename, "r");
     if (f==NULL) {
       CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", filename);
@@ -114,6 +144,7 @@ class Main : public CBase_Main {
     CmiPrintf("ReadStatsMsg from %s completed\n", filename);
     statsData = statsDatax;
     int nmigobj = 0;
+    int i;
     for (i = 0; i < statsData->objData.size(); i++) {
       if (statsData->objData[i].migratable) 
           nmigobj++;
@@ -129,45 +160,42 @@ class Main : public CBase_Main {
   //  statsData->print();
 //    diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
   }
+
   int count = 0;
+
   void init(){
+
     count++;
     if(count < 2) {
       diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
       return;
     }
+
     NodeCache* node_cache_obj = node_cache.ckLocalBranch();
-//    CkPrintf("\nDone init");
-    for(int i=0;i<numNodes;i++) {
-    //  Diffusion *diff_obj= diff_array(i).ckLocal();
-    //  diff_obj->statsData = statsData;
-      if(i==0) {
-        obj_imb(statsData);
-        node_cache_obj->map_obj_id.reserve(statsData->objData.size());
-        node_cache_obj->map_obid_pe.reserve(statsData->objData.size());
-        node_cache_obj->updated_map_obid_pe.reserve(statsData->objData.size());
-        node_cache_obj->map_pe_centroid = std::vector<std::vector<LBRealType>>(numNodes, std::vector<LBRealType>(3, 0.0));
+    obj_imb(statsData);
+    node_cache_obj->map_obj_id.reserve(statsData->objData.size());
+    node_cache_obj->map_obid_pe.reserve(statsData->objData.size());
+    node_cache_obj->updated_map_obid_pe.reserve(statsData->objData.size());
+    node_cache_obj->map_pe_centroid = std::vector<std::vector<LBRealType>>(numNodes, std::vector<LBRealType>(3, 0.0));
 
-        // centroid relevant variables
-        int positionDim = statsData->objData[0].position.size();
-        std::vector<std::vector<LBRealType>> pe_centroids(numNodes, std::vector<LBRealType>(positionDim, 0.0));
-        std::vector<int> pe_obj_count(numNodes, 0);
+    // centroid relevant variables
+    int positionDim = statsData->objData[0].position.size();
+    std::vector<std::vector<LBRealType>> pe_centroids(numNodes, std::vector<LBRealType>(positionDim, 0.0));
+    std::vector<int> pe_obj_count(numNodes, 0);
 
-        for(int obj = 0; obj < statsData->objData.size(); obj++) {
-          int obj_pe = statsData->from_proc[obj];
-          std::vector<LBRealType> obj_pos = statsData->objData[obj].position;
-          for (int comp = 0; comp < positionDim; comp++)
-            pe_centroids[obj_pe][comp] += obj_pos[comp];
-          pe_obj_count[obj_pe]++;
-          LDObjData &oData = statsData->objData[obj];
-          if (!oData.migratable)
-            continue;
+    for(int obj = 0; obj < statsData->objData.size(); obj++) {
+      int obj_pe = statsData->from_proc[obj];
+      std::vector<LBRealType> obj_pos = statsData->objData[obj].position;
+      for (int comp = 0; comp < positionDim; comp++)
+        pe_centroids[obj_pe][comp] += obj_pos[comp];
+      pe_obj_count[obj_pe]++;
+      LDObjData &oData = statsData->objData[obj];
+      if (!oData.migratable)
+        continue;
 //          CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
-          node_cache_obj->map_obj_id[obj] = oData.objID();
-          node_cache_obj->map_obid_pe[obj] = statsData->from_proc[obj];
-          node_cache_obj->updated_map_obid_pe[obj] = statsData->from_proc[obj];
-        }
-      }
+      node_cache_obj->map_obj_id[obj] = oData.objID();
+      node_cache_obj->map_obid_pe[obj] = statsData->from_proc[obj];
+      node_cache_obj->updated_map_obid_pe[obj] = statsData->from_proc[obj];
     }
 
     for (int i = 0; i < numNodes; i++)
@@ -189,8 +217,6 @@ class Main : public CBase_Main {
     {
       CkPrintf("Using COMM approach\n");
     }
-
-    GlobalMap *maps = nodeGroup;
 
     CkPrintf("\ncomm edges count = %zu", statsData->commData.size());
     diff_array.AtSync();
