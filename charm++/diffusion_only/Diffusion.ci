@@ -29,6 +29,10 @@ module Diffusion {
     entry [reductiontarget] void findNBors(int do_again);
     entry [reductiontarget] void pick3DNbors();
     entry [reductiontarget] void finishLB();
+
+    entry[reductiontarget] void findRemainingNbors(int do_again);
+    entry[reductiontarget] void buildMSTinRounds(double init_parent_pair[n], int n);
+
     entry void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
     entry void proposeNbor(int nborId);
     entry void okayNbor(int agree, int nborId);

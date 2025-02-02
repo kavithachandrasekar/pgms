@@ -36,6 +36,8 @@
 
 BaseLB::LDStats *statsData;
 
+bool centroid;
+#include <cassert>
 #include "Neighbor_list.C"
 
 using std::vector;
@@ -64,7 +66,6 @@ class Main : public CBase_Main {
   obj_imb_funcptr obj_imb;
   int numNodes;
   int stats_msg_count;
-  bool centroid;
   NodeCache* node_cache_obj;
   char *output_filename;
   public:
@@ -320,7 +321,7 @@ void Diffusion::passPtrs(double *loadNbors, double *toSendLd,
   loadNeighbors = loadNbors;
   toSendLoad = toSendLd;
   toReceiveLoad = toRecvLd;
-  cb = func;
+//  cb = func;
   objPtr = obj;
 }
 
@@ -371,6 +372,11 @@ void Diffusion::createObjList(){
 bool Diffusion::obj_on_node(int objId) {
   if(thisIndex == node_cache_obj->map_obid_pe[objId]) return true;
   return false;
+}
+
+std::vector<LBRealType> Diffusion::getCentroid(int pe)
+{
+  return node_cache_obj->map_pe_centroid[pe];
 }
 
 int Diffusion::get_obj_idx(int objHandleId) {

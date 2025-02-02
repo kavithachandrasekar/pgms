@@ -28,6 +28,151 @@ void Diffusion::createCommList() {
   }
   sortArr(ebytes, numNodes, nbors);
 }
+
+void Diffusion::findNBors(int do_again)
+{
+  DEBUGL(("\nNode-%d, round =%d, sendToNeighbors.size() = %d", thisIndex, round, sendToNeighbors.size()));
+  if (round == 0)
+  {
+    cost_for_neighbor = {}; // dictionary of nbor keys to cost
+    if (centroid)
+    {
+      CkPrintf("\ncreateDistNList");
+      pick = 0;
+      createDistNList();
+    }
+    else
+    {
+      createCommList();
+    }
+  }
+
+  mstVisitedPes.clear();
+  double init_and_parent[3];
+  init_and_parent[0] = 0;
+  init_and_parent[1] = -1;
+  init_and_parent[2] = 0;
+
+  buildMSTinRounds(init_and_parent, 2);
+}
+
+void Diffusion::findRemainingNbors(int do_again)
+{
+  requests_sent = 0;
+  if (!do_again || round == 100)
+  {
+    neighborCount = sendToNeighbors.size();
+
+    loadNeighbors = new double[neighborCount];
+    toSendLoad = new double[neighborCount];
+    toReceiveLoad = new double[neighborCount];
+
+    CkPrintf("DONE FINDING REMAINING: Node-%d, round =%d, neighborCount = %d, neighbor[0] = %d\n", thisIndex, round, neighborCount, sendToNeighbors[0]);
+
+    CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
+    contribute(cb);
+    return;
+  }
+  int potentialNb = 0;
+  int myNodeId = thisIndex;
+  int nborsNeeded = (NUM_NEIGHBORS - sendToNeighbors.size()) / 2;
+
+  if (nborsNeeded > 0)
+  {
+    // CkPrintf("neighbors still needed\n");
+    while (potentialNb < nborsNeeded)
+    {
+      int potentialNbor = nbors[pick++]; // rand() % numNodes;
+      if (myNodeId != potentialNbor &&
+          std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end() &&
+          potentialNbor < numNodes &&
+          potentialNbor >= 0)
+      {
+        // CkPrintf("Node-%d sending request round =%d, potentialNbor = %d\n", thisIndex, round, potentialNbor);
+        requests_sent++;
+        thisProxy(potentialNbor).proposeNbor(myNodeId);
+        potentialNb++;
+      }
+    }
+  }
+  else
+  {
+    int do_again = 0;
+    CkCallback cb(CkReductionTarget(Diffusion, findRemainingNbors), thisProxy);
+    contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+  }
+}
+
+void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
+{
+  double cost = init_and_parent[0];
+  int from = int(init_and_parent[1]);
+  int to = int(init_and_parent[2]); // new node added to graph
+
+  // initiator is new node added to graph
+  // assert that to is not already in graph
+  // CkPrintf("Node-%d getting edge from = %d, to = %d, cost = %f\n", thisIndex, from, to, cost);
+  mstVisitedPes.push_back(to);
+
+  if (thisIndex == to)
+  {
+    if (from != -1 && to != from)
+    {
+      // CkPrintf("Node-%d, adding neighbor %d\n", thisIndex, from);
+      sendToNeighbors.push_back(from);
+    }
+  }
+
+  if (thisIndex == from)
+  {
+    assert(to != -1 && to != from);
+    // CkPrintf("Node-%d, adding neighbor %d\n", thisIndex, to);
+    sendToNeighbors.push_back(to);
+  }
+
+  if (mstVisitedPes.size() == numNodes)
+  {
+    CkPrintf("Node-%d, MST complete with numneighbors = %d, visitedPEs size %d\n", thisIndex, sendToNeighbors.size(), mstVisitedPes.size());
+    int do_again = 1;
+
+    CkCallback cb(CkReductionTarget(Diffusion, findRemainingNbors), thisProxy);
+    contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+  }
+  else
+  {
+    int newNbor = -1;
+    int newParent = -1;
+    int cost = 0;
+    // check if thisIndex is in mstVisitedPes
+    if (std::find(mstVisitedPes.begin(), mstVisitedPes.end(), thisIndex) != mstVisitedPes.end())
+    {
+      // node in visited set
+
+      // pick best edge to unvisited node
+      while (1)
+      {
+        int checkNbor = nbors[pick++];
+        if (std::find(mstVisitedPes.begin(), mstVisitedPes.end(), checkNbor) == mstVisitedPes.end() && checkNbor != thisIndex && checkNbor < numNodes && checkNbor >= 0)
+        {
+          newNbor = checkNbor;
+          newParent = thisIndex;
+          cost = cost_for_neighbor[newNbor];
+          break;
+        }
+      }
+    }
+
+    // contribute to reduction
+    double init_and_parent_new[3];
+    init_and_parent_new[0] = cost;
+    init_and_parent_new[1] = newParent;
+    init_and_parent_new[2] = newNbor;
+
+    // CkPrintf("Node-%d, contributing newNbor = %d, newParent = %d\n", thisIndex, newNbor, newParent);
+    contribute(sizeof(double) * 3, init_and_parent_new, findBestEdgeType, CkCallback(CkReductionTarget(Diffusion, buildMSTinRounds), thisProxy));
+  }
+}
+/*
 void Diffusion::findNBors(int do_again) {
   if(round==0) {
     round++;
@@ -69,6 +214,48 @@ void Diffusion::findNBors(int do_again) {
     CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
     contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
   }
+}
+*/
+/* This function creates a list of neighbors, stored in nbors, and sorted by "position" distance from the current node */
+void Diffusion::createDistNList()
+{
+  // initialization
+  long distance[numNodes];
+  nbors = new int[numNodes];
+
+  // compute distance from local aggregate centroid to all other aggregate centroids
+  if (getCentroid(thisIndex).size() == 0)
+  {
+    CkPrintf("Error: map_pe_centroid is empty\n");
+    CkExit();
+  }
+  std::vector<LBRealType> myCentroid = getCentroid(thisIndex);
+
+  for (int n = 0; n < numNodes; n++)
+  {
+    nbors[n] = n;
+    distance[n] = 0;
+    if (n == thisIndex)
+    {
+      continue;
+    }
+
+    std::vector<LBRealType> oppCentroid = getCentroid(n);
+    for (int i = 0; i < myCentroid.size(); i++)
+    {
+      distance[n] += (myCentroid[i] - oppCentroid[i]) * (myCentroid[i] - oppCentroid[i]);
+    }
+  }
+
+  for (int nbor = 0; nbor < numNodes; nbor++)
+  {
+    cost_for_neighbor[nbor] = 100000000; // TODO: this should really be inf
+    if (distance[nbor] != 0)
+      cost_for_neighbor[nbor] = 1 / distance[nbor];
+  }
+
+  // sort neighbors based on centroid distance
+  pairedSort(nbors, distance, numNodes);
 }
 
 void Diffusion::proposeNbor(int nborId) {
@@ -172,6 +359,24 @@ void Diffusion::pick3DNbors() {
 
   findNBors(0);
 #endif
+}
+
+void Diffusion::pairedSort(int *A, long *B, int n)
+{
+  // sort array A based on corresponding values in B (both of size n)
+  std::vector<std::pair<long, int>> vp;
+  for (int i = 0; i < n; ++i)
+  {
+    vp.push_back(std::make_pair(B[i], A[i]));
+  }
+
+  sort(vp.begin(), vp.end());
+
+  // convert A back to array
+  for (int i = 0; i < n; ++i)
+  {
+    A[i] = vp[i].second;
+  }
 }
 
 void Diffusion::sortArr(long arr[], int n, int *nbors)
