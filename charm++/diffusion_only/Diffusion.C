@@ -529,6 +529,173 @@ void Diffusion::updateLoad(double load) {
   my_load_after_transfer += load;
 }
 
+void Diffusion::LoadBalancingCentroids()
+{
+  int n_objs = objects.size(); // objects only includes objects on my node?
+
+  // For each object, store its distance to current centroid (as gain val)
+  // and store dist to all neighboring node centroids
+  std::vector<std::vector<double>> map_obj_to_neighbor_dist(n_objs);
+  std::vector<double> map_self_to_neighbor_dist(neighborCount);
+
+  std::vector<double> map_obj_to_load(n_objs);
+  std::vector<int> obj_local_to_global(n_objs);
+
+  double *gain_value = new double[n_objs];
+
+  for (int i = 0; i < n_objs; i++)
+  {
+    int objHandle = objects[i].getVertexId();
+    int obj_idx = get_obj_idx(objHandle); // gets global obj index
+    obj_local_to_global[i] = obj_idx;
+    if (node_cache_obj->map_obid_pe[obj_idx] != thisIndex)
+      CmiAbort("ERROR: object %d not on node %d\n", obj_idx, thisIndex);
+
+    // object load is just wall time
+    map_obj_to_load[i] = statsData->objData[obj_idx].wallTime;
+
+    std::vector<LBRealType> obj_pos = statsData->objData[obj_idx].position;
+
+    // gain_value is just the distance to the current centroid
+    std::vector<LBRealType> curr_centroid = getCentroid(thisIndex);
+    gain_value[i] = (double)computeDistance(obj_pos, curr_centroid);
+
+    // store the distance to all other centroids
+    map_obj_to_neighbor_dist[i].resize(neighborCount);
+    for (int n = 0; n < neighborCount; n++)
+    {
+      std::vector<LBRealType> n_centroid = getCentroid(sendToNeighbors[n]);
+      map_obj_to_neighbor_dist[i][n] = computeDistance(obj_pos, n_centroid);
+      map_self_to_neighbor_dist[n] = computeDistance(curr_centroid, n_centroid);
+    }
+  }
+  // For sorting: make pairs of object id and gain value
+  std::vector<std::pair<double, int>> obj_gain_pairs(n_objs);
+  for (int i = 0; i < n_objs; i++)
+  {
+    obj_gain_pairs[i] = std::make_pair(gain_value[i], i);
+  }
+
+  // SORT: sort the objects based on gain value (in increasing order)
+  std::sort(obj_gain_pairs.begin(), obj_gain_pairs.end());
+
+  vector<int> nbor_ids(neighborCount);
+  std::iota(nbor_ids.begin(), nbor_ids.end(), 0); // Initializing to nbor indeces
+
+  vector<int> avail_objects(n_objs);
+  std::iota(avail_objects.begin(), avail_objects.end(), 0);
+
+  // ------ COMPUTE NEIGHBOR (CLOSENESS, LOAD) METRIC -------
+  // compute closeness for each neighbor (inverse distance)
+  std::vector<std::pair<double, int>> neighbor_closeness(neighborCount);
+    for (int n = 0; n < neighborCount; n++)
+    {
+    neighbor_closeness[n] = std::make_pair(1 / map_self_to_neighbor_dist[n], n);
+  }
+
+  // normalize closeness
+  double total_closeness = std::accumulate(neighbor_closeness.begin(), neighbor_closeness.end(), 0.0,
+                                           [](double sum, std::pair<double, int> i)
+                                           { return sum + i.first; });
+    for (int n = 0; n < neighborCount; n++)
+    {
+    neighbor_closeness[n].first /= total_closeness;
+    }
+
+  // compute load for each neighbor
+  std::vector<double> neighbor_load(neighborCount);
+  for (int n = 0; n < neighborCount; n++)
+    neighbor_load[n] = loadNeighbors[n];
+
+  // normalize load
+  double total_load = std::accumulate(neighbor_load.begin(), neighbor_load.end(), 0.0);
+  for (int n = 0; n < neighborCount; n++)
+    neighbor_load[n] /= total_load;
+
+  // create combined metric
+  std::vector<std::pair<double, int>> neighbor_metric(neighborCount);
+  for (int n = 0; n < neighborCount; n++)
+    neighbor_metric[n] = std::make_pair(neighbor_closeness[n].first + neighbor_load[n], n);
+
+  // ------ COMPUTE NEIGHBOR (CLOSENESS, LOAD) METRIC -------
+  while (my_load_after_transfer > 0)
+  {
+
+    if (obj_gain_pairs.empty() || neighbor_metric.empty())
+      break;
+
+    // sort neighbors by metric in descending order
+    std::sort(neighbor_metric.begin(), neighbor_metric.end(), [&](std::pair<double, int> i, std::pair<double, int> j)
+              { return i.first > j.first; });
+
+    // neighbor with highest combined metric
+    int curr_neighbor = neighbor_metric[0].second;
+
+    if (toSendLoad[curr_neighbor] <= 0)
+    {
+      neighbor_metric.erase(neighbor_metric.begin());
+      continue;
+    }
+
+    // compute closeness and size for each object relative to thsi neighbor
+    std::vector<std::pair<double, int>> obj_metric_pairs(avail_objects.size());
+    double sum_of_loads = std::accumulate(map_obj_to_load.begin(), map_obj_to_load.end(), 0.0);
+    double sum_of_closeness = std::accumulate(map_obj_to_neighbor_dist.begin(), map_obj_to_neighbor_dist.end(), 0.0,
+                                              [&](double sum, std::vector<double> i)
+                                              { return sum + 1 / i[curr_neighbor]; });
+    for (int i = 0; i < avail_objects.size(); i++)
+    {
+      int obj_local_idx = avail_objects[i];
+      double obj_closeness = (1 / map_obj_to_neighbor_dist[obj_local_idx][curr_neighbor]) / sum_of_closeness;
+      double obj_load = map_obj_to_load[obj_local_idx] / sum_of_loads;
+
+      assert(obj_load >= 0 && obj_load <= 1);
+      assert(obj_closeness >= 0 && obj_closeness <= 1);
+      obj_metric_pairs[i] = std::make_pair(obj_closeness + obj_load, obj_local_idx);
+    }
+
+    // sort objects by metric in descending order
+    std::sort(obj_metric_pairs.begin(), obj_metric_pairs.end(), [&](std::pair<double, int> i, std::pair<double, int> j)
+              { return i.first > j.first; });
+
+     // find the first object that can be sent to this neighbor
+    int obj_local_idx = -1;
+    double obj_load = -1;
+    for (int i = 0; i < obj_metric_pairs.size(); i++)
+    {
+      if (map_obj_to_load[obj_local_idx] <= toSendLoad[curr_neighbor])
+      {
+        obj_local_idx = obj_metric_pairs[i].second;
+        obj_load = map_obj_to_load[obj_local_idx];
+        break;
+      }
+    }
+
+    // no object chosen, neighbor doesn't get any more objects (EVER)
+    if (obj_local_idx == -1)
+    {
+      neighbor_metric.erase(neighbor_metric.begin());
+      continue;
+    }
+
+    // object and neighbor have been chosen
+    int obj_global_idx = obj_local_to_global[obj_local_idx];
+    int globalNeighborId = sendToNeighbors[curr_neighbor];
+
+    toSendLoad[curr_neighbor] -= obj_load;
+    loadNeighbors[curr_neighbor] += obj_load;
+    my_load_after_transfer -= obj_load;
+
+    node_cache_obj->map_obid_pe[obj_global_idx] = globalNeighborId;
+//    toSendNeighborsLoad[curr_neighbor] += obj_load;
+    // CkPrintf("Migrating object %d to neighbor %d\n", obj_global_idx, globalNeighborId);
+    avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_local_idx), avail_objects.end());
+  }
+
+  CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
+  contribute(cbm);
+}
+
 void Diffusion::LoadBalancing() {
   int migrated_obj_count = 0;
   for(int knbor=0;knbor<neighborCount;knbor++) {

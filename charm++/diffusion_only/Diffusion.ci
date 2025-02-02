@@ -41,7 +41,8 @@ module Diffusion {
     entry [reductiontarget] void createObjs(void);
     entry void ReceiveLoadInfo(int itr, double load, int node);
     entry void PseudoLoad(int itr, double load, int node);
-    entry [reductiontarget] void LoadBalancing(); 
+    entry [reductiontarget] void LoadBalancing();
+    entry[reductiontarget] void LoadBalancingCentroids();
 //    entry void collectStats(int nodeId, long internalBytes_in, long externalBytes_in);
 //    entry void continueLB();
     

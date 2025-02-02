@@ -198,3 +198,81 @@ template <typename T> static void computeCommBytes(BaseLB::LDStats *statsData, T
     tag = "After";
   CkPrintf("\n[%s LB] Internal comm Mbytes = %lf, External comm Mbytes = %lf", tag, internalBytes/(1024*1024), externalBytes/(1024*1024));
 }
+
+static double computeDistance(std::vector<LBRealType> a, std::vector<LBRealType> b)
+{
+  LBRealType dist = 0.0;
+  for (int i = 0; i < a.size(); i++)
+  {
+    dist += (a[i] - b[i]) * (a[i] - b[i]);
+  }
+  dist = sqrt(dist);
+  return dist;
+}
+
+template <typename T>
+static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
+{
+  int n_objs = statsData->objData.size();
+  int n_procs = statsData->nprocs();
+
+  double avg_spread = 0.0;
+
+  if (n_objs > 0)
+  {
+    int posDim = statsData->objData[0].position.size();
+    if (posDim > 0) // otherwise pos data not given
+    {
+      // first compute centroid for each proc
+      std::vector<std::vector<double>> centroids(n_procs, std::vector<double>(posDim, 0.0));
+      std::vector<int> objcount(n_procs, 0);
+      std::vector<std::vector<std::vector<double>>> map_pe_to_obj_pos(n_procs);
+      std::vector<double> spread(n_procs, 0.0);
+
+      // accumulate positions to centroid
+      for (int i = 0; i < n_objs; i++)
+      { 
+        LDObjData &oData = statsData->objData[i];
+        int pe = obj->obj_node_map(i);
+
+        for (int comp = 0; comp < posDim; comp++)
+          centroids[pe][comp] += oData.position[comp];
+        objcount[pe]++;
+      }
+
+      // find centroid via averaging
+      for (int i = 0; i < n_procs; i++)
+      {
+        if (objcount[i] > 0)
+        {
+          for (int comp = 0; comp < posDim; comp++)
+          {
+            centroids[i][comp] /= objcount[i];
+          }
+        }
+      }
+
+      // compute distance to each object
+      for (int i = 0; i < n_objs; i++)
+      {
+        LDObjData &oData = statsData->objData[i];
+        int pe = obj->obj_node_map_updated(i);
+        spread[pe] += (double)computeDistance(oData.position, centroids[pe]);
+      }
+
+      // average distance for spread
+      for (int i = 0; i < n_procs; i++)
+      {
+        if (objcount[i] > 0)
+          spread[i] /= objcount[i];
+      }
+
+      // average spread over all procs
+      avg_spread = std::accumulate(spread.begin(), spread.end(), 0.0) / n_procs;
+    }
+  }
+  const char *tag = "Before";
+  if (!before)
+    tag = "After";
+  CkPrintf("[%s LB] Position spread = %lf\n", tag, avg_spread);
+}

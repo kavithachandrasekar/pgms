@@ -94,6 +94,7 @@ public:
 
     bool obj_on_node(int objId);
     void LoadBalancing();
+    void LoadBalancingCentroids();
     int get_obj_idx(int objHandleId);
     std::vector<LBRealType> getCentroid(int pe);
 
