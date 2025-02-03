@@ -461,7 +461,11 @@ void Diffusion::AvgLoad(double val) {
     if(thisIndex==0) {
       CkPrintf("\n-----------------------------------------------");
       computeCommBytes(statsData, this, 1);
-      thisProxy.LoadBalancing();
+      if (centroid)
+        thisProxy.LoadBalancingCentroids();
+      else
+        thisProxy.LoadBalancing();
+
     }
   }
 #else

@@ -53,7 +53,8 @@ void Diffusion::findNBors(int do_again)
   init_and_parent[1] = -1;
   init_and_parent[2] = 0;
 
-  buildMSTinRounds(init_and_parent, 2);
+//  buildMSTinRounds(init_and_parent, 2);
+  findRemainingNbors(1);
 }
 
 void Diffusion::findRemainingNbors(int do_again)
