@@ -1,6 +1,6 @@
 -include ../../../common.mk
 OPTS	= -O3 -g
-CHARMC	= ../../../../../netlrts-linux-x86_64-smp/bin/charmc $(OPTS)
+CHARMC	= $(CHARM_HOME)/bin/charmc $(OPTS)
 
 OBJS = Diffusion.o
 
@@ -15,7 +15,7 @@ Diffusion.ci.stamp: Diffusion.ci
 	$(CHARMC) $<
 	touch $@
 
-Diffusion.o: Diffusion.C Diffusion.decl.h Diffusion.def.h Diffusion.h ../sim_headers/common_lbsim.h
+Diffusion.o: Diffusion.C Diffusion.decl.h Diffusion.def.h Diffusion.h ../sim_headers/common_lbsim.h Neighbor_list.C
 	$(CHARMC) -c Diffusion.C
 
 clean:

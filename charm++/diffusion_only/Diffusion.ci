@@ -21,6 +21,8 @@ module Diffusion {
     entry NodeCache();
   }
 
+  initnode void registerFindBestEdge(void);
+
   array [1D] Diffusion {
     entry Diffusion(int num_nodes);
     entry [reductiontarget] void startDiffusion();

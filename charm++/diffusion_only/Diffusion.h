@@ -27,11 +27,11 @@ CkReductionMsg *findBestEdge(int nMsg, CkReductionMsg **msgs)
         // Extract this message's data
         double *m = (double *)msgs[i]->getData();
         
-        int curr_weight = m[0];
-        int curr_to = m[1];
-        int curr_from = m[2];
+        double curr_weight = m[0];
+        double curr_from = m[1];
+        double curr_to = m[2];
         
-        if (curr_weight > best_weight)
+        if (curr_weight >= best_weight)
         {   
             best_weight = curr_weight;
             best_to = curr_to;
@@ -40,8 +40,8 @@ CkReductionMsg *findBestEdge(int nMsg, CkReductionMsg **msgs)
     }
 
     ret[0] = best_weight;
-    ret[1] = best_to;
-    ret[2] = best_from;
+    ret[1] = best_from;
+    ret[2] = best_to;
 
     return CkReductionMsg::buildNew(3 * sizeof(double), ret);
 }

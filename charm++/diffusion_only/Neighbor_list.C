@@ -53,8 +53,9 @@ void Diffusion::findNBors(int do_again)
   init_and_parent[1] = -1;
   init_and_parent[2] = 0;
 
-//  buildMSTinRounds(init_and_parent, 2);
-  findRemainingNbors(1);
+  //CkPrintf("(1) STARTING MST: Node-%d, round =%d, contributing newNbor = %f, newParent = %f\n", thisIndex, round, init_and_parent[2], init_and_parent[1]);
+  buildMSTinRounds(init_and_parent, 2);
+  //findRemainingNbors(1);
 }
 
 void Diffusion::findRemainingNbors(int do_again)
@@ -68,7 +69,7 @@ void Diffusion::findRemainingNbors(int do_again)
     toSendLoad = new double[neighborCount];
     toReceiveLoad = new double[neighborCount];
 
-    CkPrintf("DONE FINDING REMAINING: Node-%d, round =%d, neighborCount = %d, neighbor[0] = %d\n", thisIndex, round, neighborCount, sendToNeighbors[0]);
+    //CkPrintf("DONE FINDING REMAINING: Node-%d, round =%d, neighborCount = %d, neighbor[0] = %d\n", thisIndex, round, neighborCount, sendToNeighbors[0]);
 
     CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
     contribute(cb);
@@ -106,50 +107,53 @@ void Diffusion::findRemainingNbors(int do_again)
 
 void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
 {
-  double cost = init_and_parent[0];
-  int from = int(init_and_parent[1]);
-  int to = int(init_and_parent[2]); // new node added to graph
+  //double cost = init_and_parent[0];
+  double from = init_and_parent[1];
+  double to = init_and_parent[2]; // new node added to graph
+
+  // correctness checks for reduction input
+  // note: if from = -1, this is fine because this is how we initialize the graph
+  // TODO: optimization: remove the first round of this algo and just start with node 0 in the graph
+  assert(to != from);
+  assert(to != -1);
+
+  mstVisitedPes.push_back(to);
 
   // initiator is new node added to graph
   // assert that to is not already in graph
-  // CkPrintf("Node-%d getting edge from = %d, to = %d, cost = %f\n", thisIndex, from, to, cost);
-  mstVisitedPes.push_back(to);
-
   if (thisIndex == to)
-  {
-    if (from != -1 && to != from)
+  { 
+    if (from != -1)
     {
-      // CkPrintf("Node-%d, adding neighbor %d\n", thisIndex, from);
+      // this check ensures that during the first round (when to = 0, from = -1), we don't add -1 to the neighbors 
       sendToNeighbors.push_back(from);
     }
   }
 
   if (thisIndex == from)
   {
-    assert(to != -1 && to != from);
-    // CkPrintf("Node-%d, adding neighbor %d\n", thisIndex, to);
     sendToNeighbors.push_back(to);
   }
 
   if (mstVisitedPes.size() == numNodes)
   {
-    CkPrintf("Node-%d, MST complete with numneighbors = %d, visitedPEs size %d\n", thisIndex, sendToNeighbors.size(), mstVisitedPes.size());
+    // all nodes have been visited, MST is complete
     int do_again = 1;
-
     CkCallback cb(CkReductionTarget(Diffusion, findRemainingNbors), thisProxy);
     contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
+    return;
   }
-  else
-  {
-    int newNbor = -1;
-    int newParent = -1;
-    int cost = 0;
+  
+  // find best new edge to add, based on cost
+    double newNbor = -1;
+    double newParent = -1;
+    double newCost = 0; // TODO: cost is a misnomer, we want to maximize the cost
+
     // check if thisIndex is in mstVisitedPes
     if (std::find(mstVisitedPes.begin(), mstVisitedPes.end(), thisIndex) != mstVisitedPes.end())
     {
       // node in visited set
-
-      // pick best edge to unvisited node
+      // pick best edge (it is best because nbors are sorted by preference)
       while (1)
       {
         int checkNbor = nbors[pick++];
@@ -157,7 +161,7 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
         {
           newNbor = checkNbor;
           newParent = thisIndex;
-          cost = cost_for_neighbor[newNbor];
+          newCost = cost_for_neighbor[newNbor];
           break;
         }
       }
@@ -165,13 +169,16 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
 
     // contribute to reduction
     double init_and_parent_new[3];
-    init_and_parent_new[0] = cost;
+    init_and_parent_new[0] = newCost;
     init_and_parent_new[1] = newParent;
     init_and_parent_new[2] = newNbor;
 
+    //CkPrintf("END OF MST ROUND: Node-%d, round =%d, contributing newNbor = %f, newParent = %f\n", thisIndex, round, newNbor, newParent);
+
     // CkPrintf("Node-%d, contributing newNbor = %d, newParent = %d\n", thisIndex, newNbor, newParent);
+    //round++;
     contribute(sizeof(double) * 3, init_and_parent_new, findBestEdgeType, CkCallback(CkReductionTarget(Diffusion, buildMSTinRounds), thisProxy));
-  }
+  
 }
 /*
 void Diffusion::findNBors(int do_again) {
@@ -250,9 +257,11 @@ void Diffusion::createDistNList()
 
   for (int nbor = 0; nbor < numNodes; nbor++)
   {
-    cost_for_neighbor[nbor] = 100000000; // TODO: this should really be inf
+    // cost is a misnomer: higher cost is better neighbor
     if (distance[nbor] != 0)
       cost_for_neighbor[nbor] = 1 / distance[nbor];
+    else
+      cost_for_neighbor[nbor] = 100000000;
   }
 
   // sort neighbors based on centroid distance
