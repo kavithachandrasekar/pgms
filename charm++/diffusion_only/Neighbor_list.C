@@ -1,31 +1,43 @@
 /* Pick NUM_NEIGHBORS in random */
 
-void Diffusion::createCommList() {
+void Diffusion::createCommList()
+{
   pick = 0;
   long ebytes[numNodes];
   std::fill_n(ebytes, numNodes, 0);
-  nbors = new int[NUM_NEIGHBORS+numNodes];
-  for(int i=0;i<numNodes;i++)
+  nbors = new int[NUM_NEIGHBORS + numNodes];
+  for (int i = 0; i < numNodes; i++)
     nbors[i] = -1;
-  neighborCount = sendToNeighbors.size();//neighborCount = NUM_NEIGHBORS/2;
-  for(int edge = 0; edge < edge_indices.size()/*statsData->commData.size()*/; edge++) {
+  neighborCount = sendToNeighbors.size(); // neighborCount = NUM_NEIGHBORS/2;
+  for (int edge = 0; edge < edge_indices.size() /*statsData->commData.size()*/; edge++)
+  {
     LDCommData &commData = statsData->commData[edge_indices[edge]];
-    if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) )
-    { 
+    if ((!commData.from_proc()) && (commData.recv_type() == LD_OBJ_MSG))
+    {
       LDObjKey from = commData.sender;
       LDObjKey to = commData.receiver.get_destObj();
-      
+
       int fromobj = get_obj_idx(from.objID());
       int toobj = get_obj_idx(to.objID());
-      if(fromobj == -1 || toobj == -1) continue;
+      if (fromobj == -1 || toobj == -1)
+        continue;
       int fromNode = obj_node_map(fromobj);
-      if(fromNode != thisIndex) continue;
+      if (fromNode != thisIndex)
+        continue;
       int toNode = obj_node_map(toobj);
-      
-      if(thisIndex != toNode && toNode!= -1)
+
+      if (thisIndex != toNode && toNode != -1)
         ebytes[toNode] += commData.bytes;
     }
   }
+
+  // initialize cost per neighbor (cost is a misnomer: higher cost is better neighbor)
+  // TODO: note that this cost can be zero... is this okay?
+  for (int i = 0; i < numNodes; i++)
+  {
+    cost_for_neighbor[i] = ebytes[i];
+  }
+
   sortArr(ebytes, numNodes, nbors);
 }
 
@@ -37,7 +49,6 @@ void Diffusion::findNBors(int do_again)
     cost_for_neighbor = {}; // dictionary of nbor keys to cost
     if (centroid)
     {
-      CkPrintf("\ncreateDistNList");
       pick = 0;
       createDistNList();
     }
@@ -48,14 +59,14 @@ void Diffusion::findNBors(int do_again)
   }
 
   mstVisitedPes.clear();
+
   double init_and_parent[3];
   init_and_parent[0] = 0;
   init_and_parent[1] = -1;
   init_and_parent[2] = 0;
 
-  //CkPrintf("(1) STARTING MST: Node-%d, round =%d, contributing newNbor = %f, newParent = %f\n", thisIndex, round, init_and_parent[2], init_and_parent[1]);
   buildMSTinRounds(init_and_parent, 2);
-  //findRemainingNbors(1);
+  // findRemainingNbors(0);
 }
 
 void Diffusion::findRemainingNbors(int do_again)
@@ -68,8 +79,6 @@ void Diffusion::findRemainingNbors(int do_again)
     loadNeighbors = new double[neighborCount];
     toSendLoad = new double[neighborCount];
     toReceiveLoad = new double[neighborCount];
-
-    //CkPrintf("DONE FINDING REMAINING: Node-%d, round =%d, neighborCount = %d, neighbor[0] = %d\n", thisIndex, round, neighborCount, sendToNeighbors[0]);
 
     CkCallback cb(CkIndex_Diffusion::startDiffusion(), thisProxy);
     contribute(cb);
@@ -107,13 +116,14 @@ void Diffusion::findRemainingNbors(int do_again)
 
 void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
 {
-  //double cost = init_and_parent[0];
+  // double cost = init_and_parent[0];
   double from = init_and_parent[1];
   double to = init_and_parent[2]; // new node added to graph
 
   // correctness checks for reduction input
   // note: if from = -1, this is fine because this is how we initialize the graph
   // TODO: optimization: remove the first round of this algo and just start with node 0 in the graph
+
   assert(to != from);
   assert(to != -1);
 
@@ -122,10 +132,10 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
   // initiator is new node added to graph
   // assert that to is not already in graph
   if (thisIndex == to)
-  { 
+  {
     if (from != -1)
     {
-      // this check ensures that during the first round (when to = 0, from = -1), we don't add -1 to the neighbors 
+      // this check ensures that during the first round (when to = 0, from = -1), we don't add -1 to the neighbors
       sendToNeighbors.push_back(from);
     }
   }
@@ -141,10 +151,10 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
     int do_again = 1;
     CkCallback cb(CkReductionTarget(Diffusion, findRemainingNbors), thisProxy);
     contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
-    return;
   }
-  
-  // find best new edge to add, based on cost
+  else
+  {
+    // find best new edge to add, based on cost
     double newNbor = -1;
     double newParent = -1;
     double newCost = 0; // TODO: cost is a misnomer, we want to maximize the cost
@@ -157,9 +167,10 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
       while (1)
       {
         int checkNbor = nbors[pick++];
+        // TODO: is it okay for checkNbor to be out of bounds? as in, > numNodes or < 0
         if (std::find(mstVisitedPes.begin(), mstVisitedPes.end(), checkNbor) == mstVisitedPes.end() && checkNbor != thisIndex && checkNbor < numNodes && checkNbor >= 0)
         {
-          newNbor = checkNbor;
+          newNbor = (double)checkNbor;
           newParent = thisIndex;
           newCost = cost_for_neighbor[newNbor];
           break;
@@ -173,12 +184,8 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
     init_and_parent_new[1] = newParent;
     init_and_parent_new[2] = newNbor;
 
-    //CkPrintf("END OF MST ROUND: Node-%d, round =%d, contributing newNbor = %f, newParent = %f\n", thisIndex, round, newNbor, newParent);
-
-    // CkPrintf("Node-%d, contributing newNbor = %d, newParent = %d\n", thisIndex, newNbor, newParent);
-    //round++;
     contribute(sizeof(double) * 3, init_and_parent_new, findBestEdgeType, CkCallback(CkReductionTarget(Diffusion, buildMSTinRounds), thisProxy));
-  
+  }
 }
 /*
 void Diffusion::findNBors(int do_again) {
@@ -259,43 +266,52 @@ void Diffusion::createDistNList()
   {
     // cost is a misnomer: higher cost is better neighbor
     if (distance[nbor] != 0)
-      cost_for_neighbor[nbor] = 1 / distance[nbor];
+      cost_for_neighbor[nbor] = 1 / (double)distance[nbor]; // neighbor with high distance has low value
+
     else
-      cost_for_neighbor[nbor] = 100000000;
+      cost_for_neighbor[nbor] = 100000000; // neighbor with 0 distance has high value
   }
 
   // sort neighbors based on centroid distance
   pairedSort(nbors, distance, numNodes);
 }
 
-void Diffusion::proposeNbor(int nborId) {
-  if(round==0) {
+void Diffusion::proposeNbor(int nborId)
+{
+  if (round == 0)
+  {
     round++;
     createCommList();
   }
   int agree = 0;
-  if((NUM_NEIGHBORS-sendToNeighbors.size())-requests_sent > 0 && sendToNeighbors.size() < NUM_NEIGHBORS &&
-      std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
+  if ((NUM_NEIGHBORS - sendToNeighbors.size()) - requests_sent > 0 && sendToNeighbors.size() < NUM_NEIGHBORS &&
+      std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end())
+  {
     agree = 1;
     sendToNeighbors.push_back(nborId);
     DEBUGL2(("\nNode-%d, round =%d Agreeing and adding %d ", thisIndex, round, nborId));
-  } else {
+  }
+  else
+  {
     DEBUGL2(("\nNode-%d, round =%d Rejecting %d ", thisIndex, round, nborId));
   }
   thisProxy(nborId).okayNbor(agree, thisIndex);
 }
 
-void Diffusion::okayNbor(int agree, int nborId) {
-  if(sendToNeighbors.size() < NUM_NEIGHBORS && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end()) {
+void Diffusion::okayNbor(int agree, int nborId)
+{
+  if (sendToNeighbors.size() < NUM_NEIGHBORS && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end())
+  {
     DEBUGL2(("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor", thisIndex, round, nborId));
     sendToNeighbors.push_back(nborId);
   }
 
   requests_sent--;
-  if(requests_sent > 0) return;
+  if (requests_sent > 0)
+    return;
 
   int do_again = 0;
-  if(sendToNeighbors.size()<NUM_NEIGHBORS)
+  if (sendToNeighbors.size() < NUM_NEIGHBORS)
     do_again = 1;
   round++;
   CkCallback cb(CkReductionTarget(Diffusion, findNBors), thisProxy);
@@ -304,35 +320,36 @@ void Diffusion::okayNbor(int agree, int nborId) {
 
 /* 3D and 2D neighbors for each cell in 3D/2D grid */
 
-void Diffusion::pick3DNbors() {
+void Diffusion::pick3DNbors()
+{
 #if NBORS_3D
   int x = getX(thisIndex);
   int y = getY(thisIndex);
   int z = getZ(thisIndex);
 
-  //6 neighbors along face of cell
-  sendToNeighbors.push_back(getNodeId(x-1,y,z));
-  sendToNeighbors.push_back(getNodeId(x+1,y,z));
-  sendToNeighbors.push_back(getNodeId(x,y-1,z));
-  sendToNeighbors.push_back(getNodeId(x,y+1,z));
-  sendToNeighbors.push_back(getNodeId(x,y,z-1));
-  sendToNeighbors.push_back(getNodeId(x,y,z+1));
+  // 6 neighbors along face of cell
+  sendToNeighbors.push_back(getNodeId(x - 1, y, z));
+  sendToNeighbors.push_back(getNodeId(x + 1, y, z));
+  sendToNeighbors.push_back(getNodeId(x, y - 1, z));
+  sendToNeighbors.push_back(getNodeId(x, y + 1, z));
+  sendToNeighbors.push_back(getNodeId(x, y, z - 1));
+  sendToNeighbors.push_back(getNodeId(x, y, z + 1));
 
-  //12 neighbors along edges
-  sendToNeighbors.push_back(getNodeId(x-1,y-1,z));
-  sendToNeighbors.push_back(getNodeId(x-1,y+1,z));
-  sendToNeighbors.push_back(getNodeId(x+1,y-1,z));
-  sendToNeighbors.push_back(getNodeId(x+1,y+1,z));
+  // 12 neighbors along edges
+  sendToNeighbors.push_back(getNodeId(x - 1, y - 1, z));
+  sendToNeighbors.push_back(getNodeId(x - 1, y + 1, z));
+  sendToNeighbors.push_back(getNodeId(x + 1, y - 1, z));
+  sendToNeighbors.push_back(getNodeId(x + 1, y + 1, z));
 
-  sendToNeighbors.push_back(getNodeId(x-1,y,z-1));
-  sendToNeighbors.push_back(getNodeId(x-1,y,z+1));
-  sendToNeighbors.push_back(getNodeId(x+1,y,z-1));
-  sendToNeighbors.push_back(getNodeId(x+1,y,z+1));
+  sendToNeighbors.push_back(getNodeId(x - 1, y, z - 1));
+  sendToNeighbors.push_back(getNodeId(x - 1, y, z + 1));
+  sendToNeighbors.push_back(getNodeId(x + 1, y, z - 1));
+  sendToNeighbors.push_back(getNodeId(x + 1, y, z + 1));
 
-  sendToNeighbors.push_back(getNodeId(x,y-1,z-1));
-  sendToNeighbors.push_back(getNodeId(x,y-1,z+1));
-  sendToNeighbors.push_back(getNodeId(x,y+1,z-1));
-  sendToNeighbors.push_back(getNodeId(x,y+1,z+1));
+  sendToNeighbors.push_back(getNodeId(x, y - 1, z - 1));
+  sendToNeighbors.push_back(getNodeId(x, y - 1, z + 1));
+  sendToNeighbors.push_back(getNodeId(x, y + 1, z - 1));
+  sendToNeighbors.push_back(getNodeId(x, y + 1, z + 1));
 #if 0
   //neighbors at vertices
   sendToNeighbors.push_back(getNodeId(x-1,y-1,z-1));
@@ -346,7 +363,7 @@ void Diffusion::pick3DNbors() {
   sendToNeighbors.push_back(getNodeId(x+1,y+1,z+1));
 #endif
 
-   //Create 2d neighbors
+  // Create 2d neighbors
 #if 0
   if(thisIndex.x > 0) sendToNeighbors.push_back(getNodeId(thisIndex.x-1, thisIndex.y));
   if(thisIndex.x < N-1) sendToNeighbors.push_back(getNodeId(thisIndex.x+1, thisIndex.y));
@@ -357,15 +374,17 @@ void Diffusion::pick3DNbors() {
   int size = sendToNeighbors.size();
   int count = 0;
 
-  for(int i=0;i<size-count;i++) {
-    if(sendToNeighbors[i] < 0)  {
-      sendToNeighbors[i] = sendToNeighbors[size-1-count];
-      sendToNeighbors[size-1-count] = -1;
+  for (int i = 0; i < size - count; i++)
+  {
+    if (sendToNeighbors[i] < 0)
+    {
+      sendToNeighbors[i] = sendToNeighbors[size - 1 - count];
+      sendToNeighbors[size - 1 - count] = -1;
       i -= 1;
       count++;
     }
   }
-  sendToNeighbors.resize(size-count);
+  sendToNeighbors.resize(size - count);
 
   findNBors(0);
 #endif
@@ -391,19 +410,20 @@ void Diffusion::pairedSort(int *A, long *B, int n)
 
 void Diffusion::sortArr(long arr[], int n, int *nbors)
 {
-  std::vector<std::pair<long, int> > vp;
+  std::vector<std::pair<long, int>> vp;
   // Inserting element in pair vector
   // to keep track of previous indexes
-  for (int i = 0; i < n; ++i) {
-      vp.push_back(std::make_pair(arr[i], i));
+  for (int i = 0; i < n; ++i)
+  {
+    vp.push_back(std::make_pair(arr[i], i));
   }
   // Sorting pair vector
   sort(vp.begin(), vp.end());
   reverse(vp.begin(), vp.end());
   int found = 0;
-  for(int i=0;i<numNodes;i++)
-    if(thisIndex!=vp[i].second) //Ideally we shouldn't need to check this
+  for (int i = 0; i < numNodes; i++)
+    if (thisIndex != vp[i].second) // Ideally we shouldn't need to check this
       nbors[found++] = vp[i].second;
-  if(found == 0)
+  if (found == 0)
     DEBUGL(("\nPE-%d Error!!!!!", CkMyPe()));
 }

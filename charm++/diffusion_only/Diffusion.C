@@ -272,7 +272,7 @@ Diffusion::Diffusion(int node_count){
 
   if(thisIndex==0)
   {
-    CkPrintf("Node count = %d", numNodes);
+    CkPrintf("Node count = %d\n", numNodes);
   }
   contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 }
