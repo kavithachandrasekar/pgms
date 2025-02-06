@@ -114,8 +114,8 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
   // correctness checks for reduction input
   // note: if from = -1, this is fine because this is how we initialize the graph
   // TODO: optimization: remove the first round of this algo and just start with node 0 in the graph
-  assert(to != from);
-  assert(to != -1);
+//  assert(to != from);
+//  assert(to != -1);
 
   mstVisitedPes.push_back(to);
 
@@ -156,7 +156,8 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
       // pick best edge (it is best because nbors are sorted by preference)
       while (1)
       {
-        int checkNbor = nbors[pick++];
+        pick = (pick+1)%numNodes;
+        int checkNbor = nbors[pick];
         if (std::find(mstVisitedPes.begin(), mstVisitedPes.end(), checkNbor) == mstVisitedPes.end() && checkNbor != thisIndex && checkNbor < numNodes && checkNbor >= 0)
         {
           newNbor = checkNbor;
