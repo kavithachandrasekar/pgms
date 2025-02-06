@@ -166,8 +166,9 @@ void Diffusion::buildMSTinRounds(double *init_and_parent, int n)
       // pick best edge (it is best because nbors are sorted by preference)
       while (1)
       {
-        int checkNbor = nbors[pick++];
-        // TODO: is it okay for checkNbor to be out of bounds? as in, > numNodes or < 0
+
+        pick = (pick + 1) % numNodes;
+        int checkNbor = nbors[pick];
         if (std::find(mstVisitedPes.begin(), mstVisitedPes.end(), checkNbor) == mstVisitedPes.end() && checkNbor != thisIndex && checkNbor < numNodes && checkNbor >= 0)
         {
           newNbor = (double)checkNbor;
