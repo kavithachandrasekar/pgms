@@ -690,7 +690,7 @@ void Diffusion::LoadBalancingCentroids()
     loadNeighbors[curr_neighbor] += obj_load;
     my_load_after_transfer -= obj_load;
 
-    node_cache_obj->map_obid_pe[obj_global_idx] = globalNeighborId;
+    node_cache_obj->updated_map_obid_pe[obj_global_idx] = globalNeighborId;
 //    toSendNeighborsLoad[curr_neighbor] += obj_load;
     // CkPrintf("Migrating object %d to neighbor %d\n", obj_global_idx, globalNeighborId);
     avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_local_idx), avail_objects.end());
