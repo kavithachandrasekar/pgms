@@ -36,6 +36,8 @@
 
 BaseLB::LDStats *statsData;
 
+#include "helper_fns.C"
+
 bool centroid;
 #include <cassert>
 #include "Neighbor_list.C"
@@ -704,25 +706,10 @@ void Diffusion::LoadBalancing() {
   int migrated_obj_count = 0;
   for(int knbor=0;knbor<neighborCount;knbor++) {
 
-    std::vector<int> todelete;
     if(toSendLoad[knbor]<0.0) continue;
-    int steps_c = 0;
+
     while(my_load_after_transfer > 0.0 && toSendLoad[knbor]>0.0) {
-//      steps_c++;
-//      CkPrintf("\nNode-%d, steps_c=%d, obj_heap size=%d", thisIndex, steps_c, obj_heap.size());
-//      if(steps_c > objects.size()+40) { CkPrintf("\nError obj_heap size = %d",obj_heap.size());
-//        break;
-//      }
-/*
-      for(int i=0;i<todelete.size();i++) {
-        for(int j=0;j<objects.size();j++)
-          if(objects[j].getVertexId() == todelete[i]) {
-            objects.erase(objects.begin()+j);
-            break;
-          }
-      }
-      todelete.clear();
-*/
+
       int n_objs = objects.size();
       objectComms.resize(n_objs);
 
@@ -736,49 +723,7 @@ void Diffusion::LoadBalancing() {
           objectComms[i][j] = 0;
       }
 
-    int obj = 0;
-
-#if 1
-    for(int edge = 0; edge < edge_indices.size()/*statsData->commData.size()*/; edge++) {
-      
-      LDCommData &commData = statsData->commData[edge_indices[edge]];
-      if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
-        LDObjKey from = commData.sender;
-        LDObjKey to = commData.receiver.get_destObj();
-
-        int fromobj = get_obj_idx(from.objID());
-        int toobj = get_obj_idx(to.objID());
-
-        if(fromobj == -1 || toobj == -1) continue;
-
-        int fromNode = local_map_obid_pe[fromobj];//;obj_node_map(fromobj);
-        if(fromNode != thisIndex) continue;
-        int toNode = local_map_obid_pe[toobj];//obj_node_map(toobj);
-
-        //store internal bytes in the last index pos ? -q
-        if(fromNode == toNode) {
-          int nborIdx = SELF_IDX;
-          int fromObj = get_local_obj_idx(from.objID());
-          int toObj = get_local_obj_idx(to.objID());
-          //DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, statsData->n_objs));
-          if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
-          // lastKnown PE value can be wrong.
-          if(toObj != -1 && toObj < n_objs) objectComms[toObj][nborIdx] += commData.bytes;
-        }
-        else { // External communication
-          int nborIdx = findNborIdx(toNode);
-          if(nborIdx == -1)
-            nborIdx = EXT_IDX;//Store in last index if it is external bytes going to non-immediate neighbors
-          int fromObj = get_local_obj_idx(from.objID());
-          //CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
-          if(fromObj != -1 && fromObj<n_objs) objectComms[fromObj][nborIdx] += commData.bytes;
-          obj++;
-        }
-
-      }
-    } // end for
-#endif
-
+    computeObjectComm(objectComms, n_objs);
   // calculate the gain value, initialize the heap.
   double threshold = THRESHOLD*avgLoadNeighbor/100.0;
 
@@ -835,7 +780,6 @@ void Diffusion::LoadBalancing() {
       continue;
     }
 
-    todelete.push_back(objHandle);
     objects.erase(objects.begin()+v_id, objects.begin()+v_id+1);
 //    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
 
@@ -879,6 +823,7 @@ void Diffusion::LoadBalancing() {
     CkStartQD(cbm);
   }
 }
+
 void Diffusion::InitializeObjHeap(int* obj_arr,int n, int* gain_val) {
   for(int i = 0; i < n; i++) {
     obj_arr[i] = i;
@@ -889,4 +834,3 @@ void Diffusion::InitializeObjHeap(int* obj_arr,int n, int* gain_val) {
 }
 
 #include "Diffusion.def.h"
-

@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <cassert>
 
 #define STANDALONE_DIFF
 #include "ckgraph.h"
@@ -159,6 +160,7 @@ private:
     void PseudoLoadBalancing();
     void InitializeObjHeap(int *obj_arr, int n, int *gain_val);
     void createCommList();
+    void computeObjectComm(std::vector<std::vector<int>>& objectComms, int n_objs);
 
 public:
     //    BaseLB::LDStats *statsData;
