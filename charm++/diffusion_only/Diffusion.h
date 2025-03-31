@@ -48,8 +48,8 @@ CkReductionMsg *findBestEdge(int nMsg, CkReductionMsg **msgs)
         }
     }
 
-    assert(!all_tos_negative); // all inputs should never have invalid edges
-    assert(best_from != best_to);
+    //assert(!all_tos_negative); // all inputs should never have invalid edges
+    //assert(best_from != best_to);
 
 
     ret[0] = best_weight;
@@ -88,16 +88,15 @@ Diffusion_SDAG_CODE public : Diffusion(int num_nodes);
     void createObjList();
     void createDistNList();
 
-    /* 3D neighbors */
-    void pick3DNbors();
-
     /* randomly picked neighbors */
     void findNBors(int do_again);
-    void findRemainingNbors(int do_again);
+    void findRemainingNbors();
+    void metricsAdded();
 
     void buildMSTinRounds(double *init_and_parent, int n);
-    void proposeNbor(int nborId);
+    void askNbor(int nborId, int rnd);
     void okayNbor(int agree, int nborId);
+    void ackNbor(int nborId);
 
     /* comm graph-based neighbors */
     void sortArr(long arr[], int n, int *nbors);
@@ -131,7 +130,7 @@ private:
     int notif;
     int *pe_obj_count;
     double *loadNeighbors;
-    int *nbors;
+    int *node_idx;
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
     std::vector<CkVertex> objects;
     std::vector<std::vector<int>> objectComms;
@@ -144,6 +143,7 @@ private:
     std::unordered_map<int, double> cost_for_neighbor;
 
     double avgLoadNeighbor;
+    int *holds;
 
     // heap
     int *obj_arr;

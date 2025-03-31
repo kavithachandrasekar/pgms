@@ -14,8 +14,8 @@
 
 #include "Heap_helper.C"
 #define DEBUGF(x) CmiPrintf x;
-#define DEBUGL(x) /*CmiPrintf x*/;
-#define DEBUGL2(x) /*CmiPrintf x*/;
+#define DEBUGL(x) CmiPrintf x;
+#define DEBUGL2(x) CmiPrintf x;
 #define DEBUGE(x) CmiPrintf x;
 
 #define NUM_NEIGHBORS 4
@@ -403,6 +403,7 @@ int Diffusion::obj_updated_node_map(int objId) {
 }
 
 void Diffusion::startDiffusion() {
+  CkExit(0);
   for(int i=0;i<neighborCount;i++) {
     //CkPrintf("\nMy[Node-%d] final neighbor[%d] = %d", thisIndex, i, sendToNeighbors[i]);
     toSendLoad[i] = 0.0;
@@ -532,7 +533,8 @@ int Diffusion::get_local_obj_idx(int objHandleId)
 #include "omp.h"
 
 void Diffusion::updateLoad(double load) {
-  my_load_after_transfer += load;
+//  my_load_after_transfer += load;
+  
 }
 
 void Diffusion::LoadBalancingCentroids()

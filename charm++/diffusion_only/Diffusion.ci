@@ -29,15 +29,16 @@ module Diffusion {
     entry [reductiontarget] void MaxLoad(double val);
     entry [reductiontarget] void AvgLoad(double val);
     entry [reductiontarget] void findNBors(int do_again);
-    entry [reductiontarget] void pick3DNbors();
+    entry [reductiontarget] void metricsAdded();
     entry [reductiontarget] void finishLB();
 
-    entry[reductiontarget] void findRemainingNbors(int do_again);
+    entry[reductiontarget] void findRemainingNbors();
     entry[reductiontarget] void buildMSTinRounds(double init_parent_pair[n], int n);
 
     entry void setNeighbors(std::vector<int> neighbors, int neighborCount, double load);
-    entry void proposeNbor(int nborId);
+    entry void askNbor(int nborId, int rnd);
     entry void okayNbor(int agree, int nborId);
+    entry void ackNbor(int nbor);
     entry void AtSync(void);
     entry void updateLoad(double load);
     entry [reductiontarget] void createObjs(void);
