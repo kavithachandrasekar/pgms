@@ -83,6 +83,7 @@ void Diffusion::metricsAdded()
   CkCallback cb(CkReductionTarget(Diffusion, findRemainingNbors), thisProxy);
   contribute(sizeof(int), &do_again, CkReduction::max_int, cb);
   */
+
   buildMSTinRounds(init_and_parent, 2);
 //   findRemainingNbors(1);
 }
@@ -120,14 +121,19 @@ void Diffusion::findRemainingNbors()
     CkPrintf("[Node-%d]neighbors (%d/%d) still needed\n", thisIndex, sendToNeighbors.size(), NUM_NEIGHBORS);
     while(local_tries < nborsNeeded)
     {
-      pick = (pick + 1)%numNodes;
+      pick = (pick + 1)%(NUM_NEIGHBORS);
       int potentialNbor = node_idx[pick]; //pick - better logic needed here
 
+      if(potentialNbor == -1) {
+        local_tries++;
+        continue;
+      }
       if (myNodeId != potentialNbor &&
           std::find(sendToNeighbors.begin(), sendToNeighbors.end(), potentialNbor) == sendToNeighbors.end() &&
           potentialNbor < numNodes &&
           potentialNbor >= 0)
       {
+        node_idx[pick] = -1;
         CkPrintf("Node-%d sending request round =%d, potentialNbor = Node-%d\n", thisIndex, round, potentialNbor);
         thisProxy(potentialNbor).askNbor(myNodeId, round);
       }
@@ -139,9 +145,8 @@ void Diffusion::findRemainingNbors()
 void Diffusion::askNbor(int nborId, int rnd)
 { 
   int agree = 0;
-  int diff = NUM_NEIGHBORS - sendToNeighbors.size();
-  diff -= holds[rnd];
-  if ( diff>0 &&
+  int nborsNeeded = NUM_NEIGHBORS - sendToNeighbors.size() - holds[rnd];
+  if (nborsNeeded>0 &&
       std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end())
   { 
     //HOLD A SPOT THOUGH on THIS ROUND!!
@@ -161,9 +166,8 @@ void Diffusion::askNbor(int nborId, int rnd)
 
 void Diffusion::okayNbor(int agree, int nborId)
 { 
-  int diff = NUM_NEIGHBORS - sendToNeighbors.size();
-  diff -= holds[round];
-  if (diff > 0 && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end())
+  int nborsNeeded = NUM_NEIGHBORS - sendToNeighbors.size() - holds[round];
+  if (nborsNeeded > 0 && agree && std::find(sendToNeighbors.begin(), sendToNeighbors.end(), nborId) == sendToNeighbors.end())
   { 
     DEBUGL2(("\n[Node-%d, round-%d] Rcvd ack, adding %d as nbor (neighbors:%d/%d, holds[%d]=%d)", thisIndex, round, nborId,sendToNeighbors.size(), NUM_NEIGHBORS, round, holds[round]));
     sendToNeighbors.push_back(nborId);
