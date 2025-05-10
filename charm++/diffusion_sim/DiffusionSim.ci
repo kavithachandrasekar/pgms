@@ -1,0 +1,65 @@
+mainmodule DiffusionSim
+{
+    readonly CProxy_Main mainProxy;
+    readonly CProxy_NodeCache nodeCacheProxy;
+    readonly CProxy_DiffusionLB diffusion_array;
+    readonly std::string input_filename;
+    readonly int numNodes;
+
+    mainchare Main
+    {
+        entry Main(CkArgMsg * m);
+        entry[reductiontarget] void init();
+        entry[reductiontarget] void done();
+        entry[reductiontarget] void checkStats(double stats[n], int n);
+        entry[reductiontarget] void collectMaxLoad(double load);
+    };
+
+    nodegroup NodeCache
+    {
+        entry NodeCache();
+    }
+
+    array[1D] DiffusionLB
+    {
+        entry DiffusionLB();
+        entry[reductiontarget] void reportMaxLoad();
+
+        // in DiffusionNeighbors.C
+        entry void findNBors(int do_again);
+        entry void beginMST();
+        entry void buildMSTinRounds(double best_weight, int best_from, int best_to);
+        entry void next_MSTphase(double newweight, int newparent, int newto);
+        entry void startFirstRound();
+        entry void findNBorsRound();
+        entry[expedited] void proposeNbor(int nborId);
+        entry[expedited] void askNbor(int nborId, int rnd);
+        entry[expedited] void okayNbor(int agree, int nborId);
+        entry void ackNbor(int nbor);
+
+        entry[reductiontarget] void startStrategy();
+
+        entry void receiveCentroid(int node, std::vector<LBRealType> centroid, int objCount);
+        entry void createCentroidList()
+        {
+            serial
+            {
+                initializeCentroid();
+            }
+
+            for (centReceiveNode = 0; centReceiveNode < numNodes; centReceiveNode++)
+            {
+                when receiveCentroid(int node, std::vector<LBRealType> centroid, int objCount)
+                    serial
+                {
+                    processReceiveCentroid(node, centroid, objCount);
+                }
+            }
+
+            serial "Sorting nbors"
+            {
+                finishCentroidList();
+            }
+        }
+    }
+}
