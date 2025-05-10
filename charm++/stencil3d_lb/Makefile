@@ -1,5 +1,5 @@
 OPTS	= -O3
-CHARMC ?= ../../../bin/charmc $(OPTS)
+CHARMC ?= $(CHARM_HOME)/bin/charmc $(OPTS)
 
 OBJS = stencil3d.o
 

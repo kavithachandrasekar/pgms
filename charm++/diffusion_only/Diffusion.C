@@ -14,8 +14,8 @@
 
 #include "Heap_helper.C"
 #define DEBUGF(x) CmiPrintf x;
-#define DEBUGL(x) /*CmiPrintf x*/;
-#define DEBUGL2(x) /*CmiPrintf x*/;
+#define DEBUGL(x) /*CmiPrintf x*/ ;
+#define DEBUGL2(x) /*CmiPrintf x*/ ;
 #define DEBUGE(x) CmiPrintf x;
 
 #define NUM_NEIGHBORS 4
@@ -23,13 +23,13 @@
 #define ITERATIONS 80
 
 #define SELF_IDX NUM_NEIGHBORS
-#define EXT_IDX NUM_NEIGHBORS+1
+#define EXT_IDX NUM_NEIGHBORS + 1
 
 #define THRESHOLD 2
 
-#define getNodeId(x,y, NY) x * NY + y
-#define getX(node) (int)floor(node/NY)
-#define getY(node) node%NY
+#define getNodeId(x, y, NY) x *NY + y
+#define getX(node) (int)floor(node / NY)
+#define getY(node) node % NY
 
 #define BYTES 512
 #define SIZE 1000
@@ -52,26 +52,30 @@ using std::vector;
 class NodeCache : public CBase_NodeCache
 {
 public:
-  std::vector<int>map_obj_id;
-  std::vector<int>map_obid_pe;
-  std::vector<int>updated_map_obid_pe;
+  std::vector<int> map_obj_id;
+  std::vector<int> map_obid_pe;
+  std::vector<int> updated_map_obid_pe;
   std::vector<std::vector<LBRealType>> map_pe_centroid;
   BaseLB::LDStats *statsData;
-  NodeCache(){
+  NodeCache()
+  {
     statsData = new BaseLB::LDStats;
     contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
   }
 };
 
-class Main : public CBase_Main {
-//  BaseLB::LDStats *statsData;
+class Main : public CBase_Main
+{
+  //  BaseLB::LDStats *statsData;
   obj_imb_funcptr obj_imb;
   int numNodes;
   int stats_msg_count;
-  NodeCache* node_cache_obj;
+  NodeCache *node_cache_obj;
   char *output_filename;
-  public:
-  Main(CkArgMsg* m) {
+
+public:
+  Main(CkArgMsg *m)
+  {
     mainProxy = thisProxy;
     if (m->argc != 5)
     {
@@ -90,7 +94,7 @@ class Main : public CBase_Main {
       //  randomly multiply object load by 0.8 or 1.2 (50% chance) for all objects
       obj_imb = (obj_imb_funcptr)load_imb_by_history;
     else if (fn_type == 3)
-    // randomly inject load on 1 PE
+      // randomly inject load on 1 PE
       obj_imb = (obj_imb_funcptr)load_imb_rand_inject;
     else if (fn_type == 4)
       // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
@@ -101,7 +105,7 @@ class Main : public CBase_Main {
     else if (fn_type == 6)
       obj_imb = (obj_imb_funcptr)load_setconst;
     else
-    { 
+    {
       CkPrintf("No load imbalance injected\n");
       obj_imb = (obj_imb_funcptr)no_imb;
     }
@@ -111,14 +115,15 @@ class Main : public CBase_Main {
 
     const char *filename = m->argv[2];
     FILE *f = fopen(filename, "r");
-    if (f==NULL) {
+    if (f == NULL)
+    {
       CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", filename);
     }
 
     node_cache = CProxy_NodeCache::ckNew();
     node_cache_obj = node_cache.ckLocalBranch();
 
-    BaseLB::LDStats *statsDatax = node_cache_obj->statsData;//new BaseLB::LDStats;
+    BaseLB::LDStats *statsDatax = node_cache_obj->statsData; // new BaseLB::LDStats;
     statsDatax->objData.reserve(SIZE);
     statsDatax->from_proc.reserve(SIZE);
     statsDatax->to_proc.reserve(SIZE);
@@ -126,55 +131,59 @@ class Main : public CBase_Main {
 
     PUP::fromDisk pd(f);
     PUP::machineInfo machInfo;
-    
-    pd((char *)&machInfo, sizeof(machInfo));  // read machine info
+
+    pd((char *)&machInfo, sizeof(machInfo)); // read machine info
     PUP::xlater p(machInfo, pd);
 
-    if (_lb_args.lbversion() > 1) {
-      p|_lb_args.lbversion();   // write version number
+    if (_lb_args.lbversion() > 1)
+    {
+      p | _lb_args.lbversion(); // write version number
       CkPrintf("LB> File version detected: %d\n", _lb_args.lbversion());
       CmiAssert(_lb_args.lbversion() <= LB_FORMAT_VERSION);
-    } 
-    p|stats_msg_count;
+    }
+    p | stats_msg_count;
 
     CmiPrintf("readStatsMsgs for %d pes starts ... \n", stats_msg_count);
 
     statsDatax->pup(p);
 
     CmiPrintf("n_obj: %zu n_migratable: %d \n", statsDatax->objData.size(), statsDatax->n_migrateobjs);
-    
+
     // file f is closed in the destructor of PUP::fromDisk
     CmiPrintf("ReadStatsMsg from %s completed\n", filename);
     statsData = statsDatax;
     int nmigobj = 0;
     int i;
-    for (i = 0; i < statsData->objData.size(); i++) {
-      if (statsData->objData[i].migratable) 
-          nmigobj++;
-      //std::vector<LBRealType> pos = statsData->objData[i].position;
-      //CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[i]);
+    for (i = 0; i < statsData->objData.size(); i++)
+    {
+      if (statsData->objData[i].migratable)
+        nmigobj++;
+      // std::vector<LBRealType> pos = statsData->objData[i].position;
+      // CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[i]);
     }
-    statsData->n_migrateobjs = nmigobj; 
+    statsData->n_migrateobjs = nmigobj;
 
     // Generate a hash with key object id, value index in objs vector
     statsData->deleteCommHash();
     statsData->makeCommHash();
     numNodes = statsData->procs.size();
-  //  statsData->print();
-//    diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
+    //  statsData->print();
+    //    diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
   }
 
   int count = 0;
 
-  void init(){
+  void init()
+  {
 
     count++;
-    if(count < 2) {
+    if (count < 2)
+    {
       diff_array = CProxy_Diffusion::ckNew(numNodes, numNodes);
       return;
     }
 
-    NodeCache* node_cache_obj = node_cache.ckLocalBranch();
+    NodeCache *node_cache_obj = node_cache.ckLocalBranch();
     obj_imb(statsData);
     node_cache_obj->map_obj_id.reserve(statsData->objData.size());
     node_cache_obj->map_obid_pe.reserve(statsData->objData.size());
@@ -186,7 +195,8 @@ class Main : public CBase_Main {
     std::vector<std::vector<LBRealType>> pe_centroids(numNodes, std::vector<LBRealType>(positionDim, 0.0));
     std::vector<int> pe_obj_count(numNodes, 0);
 
-    for(int obj = 0; obj < statsData->objData.size(); obj++) {
+    for (int obj = 0; obj < statsData->objData.size(); obj++)
+    {
       int obj_pe = statsData->from_proc[obj];
       std::vector<LBRealType> obj_pos = statsData->objData[obj].position;
       for (int comp = 0; comp < positionDim; comp++)
@@ -195,7 +205,7 @@ class Main : public CBase_Main {
       LDObjData &oData = statsData->objData[obj];
       if (!oData.migratable)
         continue;
-//          CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
+      //          CkPrintf("\nSimNode-%d Adding %dth = %d on PE-%d", 0, obj, oData.objID(), statsData->from_proc[obj]);
       node_cache_obj->map_obj_id[obj] = oData.objID();
       node_cache_obj->map_obid_pe[obj] = statsData->from_proc[obj];
       node_cache_obj->updated_map_obid_pe[obj] = statsData->from_proc[obj];
@@ -225,41 +235,46 @@ class Main : public CBase_Main {
     diff_array.AtSync();
   }
 
-  void done() {
+  void done()
+  {
 #if 1
-    NodeCache* node_cache_obj = node_cache.ckLocalBranch();
-    for(int obj = 0; obj < statsData->objData.size(); obj++) {
+    NodeCache *node_cache_obj = node_cache.ckLocalBranch();
+    for (int obj = 0; obj < statsData->objData.size(); obj++)
+    {
       if (!statsData->objData[obj].migratable)
         continue;
       statsData->from_proc[obj] = node_cache_obj->updated_map_obid_pe[obj];
-//      std::vector<LBRealType> pos = statsData->objData[obj].position;
-//      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
+      //      std::vector<LBRealType> pos = statsData->objData[obj].position;
+      //      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
     }
 #endif
-    const char* filename = "lbdata.dat.out.0";
+    const char *filename = "lbdata.dat.out.0";
     FILE *f = fopen(filename, "w");
-    if (f==NULL) {
+    if (f == NULL)
+    {
       CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
     }
     const PUP::machineInfo &machInfo = PUP::machineInfo::current();
     PUP::toDisk p(f);
     p((char *)&machInfo, sizeof(machInfo)); // machine info
 
-    p|_lb_args.lbversion();   // write version number
-    p|stats_msg_count;
+    p | _lb_args.lbversion(); // write version number
+    p | stats_msg_count;
     statsData->pup(p);
 
     fclose(f);
 
     CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
 
-    CkPrintf("\nDONE");fflush(stdout);
+    CkPrintf("\nDONE");
+    fflush(stdout);
     CkExit(0);
   }
 };
 #endif
 
-Diffusion::Diffusion(int node_count){
+Diffusion::Diffusion(int node_count)
+{
   setMigratable(false);
   done = -1;
   round = 0;
@@ -271,20 +286,22 @@ Diffusion::Diffusion(int node_count){
   edge_indices.reserve(10000);
   node_cache_obj = node_cache.ckLocalBranch();
 
-
-  if(thisIndex==0)
+  if (thisIndex == 0)
   {
     CkPrintf("Node count = %d\n", numNodes);
   }
   contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 }
 
-Diffusion::~Diffusion() { }
+Diffusion::~Diffusion() {}
 
-void Diffusion::AtSync() {
-  for(int edge = 0; edge < statsData->commData.size(); edge++) {
+void Diffusion::AtSync()
+{
+  for (int edge = 0; edge < statsData->commData.size(); edge++)
+  {
     LDCommData &commData = statsData->commData[edge];
-    if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
+    if ((!commData.from_proc()) && (commData.recv_type() == LD_OBJ_MSG))
+    {
       LDObjKey from = commData.sender;
 
       int fromNode = obj_node_map(get_obj_idx(from.objID()));
@@ -296,8 +313,9 @@ void Diffusion::AtSync() {
   contribute(CkCallback(CkReductionTarget(Diffusion, createObjs), thisProxy));
 }
 
-void Diffusion::createObjs() {
-//  CkPrintf("\n[SimNode#%d] createObjs", thisIndex);
+void Diffusion::createObjs()
+{
+  //  CkPrintf("\n[SimNode#%d] createObjs", thisIndex);
   createObjList();
 
   CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
@@ -305,7 +323,7 @@ void Diffusion::createObjs() {
   CkCallback cba(CkReductionTarget(Diffusion, AvgLoad), thisProxy);
   contribute(sizeof(double), &my_load, CkReduction::sum_double, cba);
 
-  sendToNeighbors.reserve(100);//NUM_NEIGHBORS);
+  sendToNeighbors.reserve(100); // NUM_NEIGHBORS);
   sendToNeighbors.clear();
 
   int do_again = 1;
@@ -319,17 +337,20 @@ void Diffusion::createObjs() {
 }
 
 void Diffusion::passPtrs(double *loadNbors, double *toSendLd,
-                              double *toRecvLd, void (*func)(void*), void* obj) {
+                         double *toRecvLd, void (*func)(void *), void *obj)
+{
   loadNeighbors = loadNbors;
   toSendLoad = toSendLd;
   toReceiveLoad = toRecvLd;
-//  cb = func;
+  //  cb = func;
   objPtr = obj;
 }
 
-void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load) {
+void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load)
+{
   neighborCount = nCount;
-  for(int i=0;i<neighborCount;i++) {
+  for (int i = 0; i < neighborCount; i++)
+  {
     sendToNeighbors.push_back(nbors[i]);
     toSendLoad[i] = 0.0;
     toReceiveLoad[i] = 0.0;
@@ -340,18 +361,22 @@ void Diffusion::setNeighbors(std::vector<int> nbors, int nCount, double load) {
   contribute(cb);
 }
 
-void Diffusion::createObjList(){
+void Diffusion::createObjList()
+{
   my_load = 0.0;
-  int start_node_obj_idx = 0; //this should be taken from map in stencil3d
+  int start_node_obj_idx = 0; // this should be taken from map in stencil3d
 
   int total_objs = statsData->objData.size();
   local_map_obid_pe.reserve(statsData->objData.size());
-  for(int obj = 0 ; obj < statsData->objData.size(); obj++) {
+  for (int obj = 0; obj < statsData->objData.size(); obj++)
+  {
     LDObjData &oData = statsData->objData[obj];
     int pe = statsData->from_proc[obj];
     local_map_obid_pe[obj] = statsData->from_proc[obj];
-    if(pe != thisIndex) continue;
-    if (!oData.migratable) {
+    if (pe != thisIndex)
+      continue;
+    if (!oData.migratable)
+    {
       if (!statsData->procs[pe].available)
         CmiAbort("Greedy0LB cannot handle nonmigratable object on an unavial processor!\n");
       continue;
@@ -362,17 +387,19 @@ void Diffusion::createObjList(){
   }
 
   my_load_after_transfer = my_load;
-//  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
-//  CkPrintf("\nThe number of objects on this node(#%d) = %d", thisIndex, nobj);
-/*
-  for(int nobj = 0; nobj < (int)(my_load); nobj++) {
-    objects[nobj] = CkVertex(nobj, 1.0, 1, 0);//oData.wallTime, statsData->objData[nobj].migratable, statsData->from_proc[nobj]);
-  }
-*/
+  //  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
+  //  CkPrintf("\nThe number of objects on this node(#%d) = %d", thisIndex, nobj);
+  /*
+    for(int nobj = 0; nobj < (int)(my_load); nobj++) {
+      objects[nobj] = CkVertex(nobj, 1.0, 1, 0);//oData.wallTime, statsData->objData[nobj].migratable, statsData->from_proc[nobj]);
+    }
+  */
 }
 
-bool Diffusion::obj_on_node(int objId) {
-  if(thisIndex == node_cache_obj->map_obid_pe[objId]) return true;
+bool Diffusion::obj_on_node(int objId)
+{
+  if (thisIndex == node_cache_obj->map_obid_pe[objId])
+    return true;
   return false;
 }
 
@@ -381,141 +408,170 @@ std::vector<LBRealType> Diffusion::getCentroid(int pe)
   return node_cache_obj->map_pe_centroid[pe];
 }
 
-int Diffusion::get_obj_idx(int objHandleId) {
-//  CkPrintf("\nAsking for %d", objHandleId);
-  for(int i=0; i< statsData->objData.size(); i++) {
-//    CkPrintf("\nPrinting[%d] = %d", i, diff0->map_obj_id[i]);
-    if(node_cache_obj->map_obj_id[i] == objHandleId) {
-//      CkPrintf("\nReturning i=%d",i);
+int Diffusion::get_obj_idx(int objHandleId)
+{
+  //  CkPrintf("\nAsking for %d", objHandleId);
+  for (int i = 0; i < statsData->objData.size(); i++)
+  {
+    //    CkPrintf("\nPrinting[%d] = %d", i, diff0->map_obj_id[i]);
+    if (node_cache_obj->map_obj_id[i] == objHandleId)
+    {
+      //      CkPrintf("\nReturning i=%d",i);
       return i;
     }
   }
-  CkPrintf("\nNot found");
+
   return -1;
 }
 
-int Diffusion::obj_node_map(int objId) {
+int Diffusion::obj_node_map(int objId)
+{
   return node_cache_obj->map_obid_pe[objId];
 }
 
-int Diffusion::obj_updated_node_map(int objId) {
+int Diffusion::obj_updated_node_map(int objId)
+{
   return node_cache_obj->updated_map_obid_pe[objId];
 }
 
-void Diffusion::startDiffusion() {
-  for(int i=0;i<neighborCount;i++) {
-    //CkPrintf("\nMy[Node-%d] final neighbor[%d] = %d", thisIndex, i, sendToNeighbors[i]);
+void Diffusion::startDiffusion()
+{
+  for (int i = 0; i < neighborCount; i++)
+  {
+    // CkPrintf("\nMy[Node-%d] final neighbor[%d] = %d", thisIndex, i, sendToNeighbors[i]);
     toSendLoad[i] = 0.0;
     toReceiveLoad[i] = 0.0;
   }
   thisProxy[thisIndex].iterate();
 }
 
-int Diffusion::findNborIdx(int node) {
-  for(int i=0;i<sendToNeighbors.size();i++)
-    if(sendToNeighbors[i] == node)
+int Diffusion::findNborIdx(int node)
+{
+  for (int i = 0; i < sendToNeighbors.size(); i++)
+    if (sendToNeighbors[i] == node)
       return i;
-//  for(int i=0;i<neighborCount;i++)
-//  DEBUGE(("\n[%d]Couldnt find node %d in %d", thisIndex, node, sendToNeighbors[i]));
-//  CkExit(0);
+  //  for(int i=0;i<neighborCount;i++)
+  //  DEBUGE(("\n[%d]Couldnt find node %d in %d", thisIndex, node, sendToNeighbors[i]));
+  //  CkExit(0);
   return -1;
 }
 
-double Diffusion::average() {
+double Diffusion::average()
+{
   double sum = 0;
-  for(int i = 0; i < neighborCount; i++) {
+  for (int i = 0; i < neighborCount; i++)
+  {
     sum += loadNeighbors[i];
   }
   // TODO: check the value
-  return (sum/neighborCount);
+  return (sum / neighborCount);
 }
 
-bool Diffusion::AggregateToSend() {
+bool Diffusion::AggregateToSend()
+{
   bool res = false;
-  for(int i = 0; i < neighborCount; i++) {
+  for (int i = 0; i < neighborCount; i++)
+  {
     toSendLoad[i] -= toReceiveLoad[i];
-    if(toSendLoad[i] > 0)
-      res= true;
+    if (toSendLoad[i] > 0)
+      res = true;
   }
   return res;
 }
 
-void Diffusion::finishLB(){
+void Diffusion::finishLB()
+{
   finished = true;
   my_load = my_load_after_transfer;
-//  CkPrintf("\nNode-%d, my load = %lf", thisIndex, my_load_after_transfer);
+  //  CkPrintf("\nNode-%d, my load = %lf", thisIndex, my_load_after_transfer);
   CkCallback cbm(CkReductionTarget(Diffusion, MaxLoad), thisProxy(0));
   contribute(sizeof(double), &my_load_after_transfer, CkReduction::max_double, cbm);
 }
-void Diffusion::MaxLoad(double val) {
-  if(finished)computeCommBytes(statsData, this, 0);
-  DEBUGF(("\n[Iter: %d] Max PE load = %lf", itr, val));fflush(stdout);
-  if(finished) mainProxy.done();
-}
+void Diffusion::MaxLoad(double val)
+{
+  if (thisIndex == 0)
+  {
 
-void Diffusion::AvgLoad(double val) {
+    if (finished)
+      computeCommBytes(statsData, this, 0);
+    DEBUGF(("\n[Iter: %d] Max PE load = %lf", itr, val));
+    fflush(stdout);
+    if (finished)
+      mainProxy.done();
+  }
+}
+void Diffusion::AvgLoad(double val)
+{
   done++;
-  if(thisIndex==0)
-  DEBUGF(("\n[%d]Avg Node load = %lf", done, val/numNodes));
+  if (thisIndex == 0)
+    DEBUGF(("\n[%d]Avg Node load = %lf", done, val / numNodes));
 #ifdef STANDALONE_DIFF
-//  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes); 
-  if(done == 1) {
-    if(thisIndex==0) {
+  //  CkPrintf("\n[SimNode#%d done=%d sending to %d nodes",thisIndex,done, numNodes);
+  if (done == 1)
+  {
+    if (thisIndex == 0)
+    {
       CkPrintf("\n-----------------------------------------------");
       computeCommBytes(statsData, this, 1);
       if (centroid)
         thisProxy.LoadBalancingCentroids();
       else
         thisProxy.LoadBalancing();
-
     }
   }
 #else
-//    CkPrintf("\nCalling Obj potr %d", CkMyPe());
-    cb(objPtr);
+  //    CkPrintf("\nCalling Obj potr %d", CkMyPe());
+  cb(objPtr);
 #endif
 }
 
-void Diffusion::PseudoLoadBalancing() {
+void Diffusion::PseudoLoadBalancing()
+{
   std::string nbor_nodes_load = " ";
-  for(int i = 0; i < neighborCount; i++) {
-    nbor_nodes_load += " node-"+ std::to_string(sendToNeighbors[i])+"'s load= "+std::to_string(loadNeighbors[i]);
+  for (int i = 0; i < neighborCount; i++)
+  {
+    nbor_nodes_load += " node-" + std::to_string(sendToNeighbors[i]) + "'s load= " + std::to_string(loadNeighbors[i]);
   }
   DEBUGL2(("[PE-%d, Node-%d] Pseudo Load Balancing , iteration %d my_load %f my_load_after_transfer %f avgLoadNeighbor %f (split = %s)\n", CkMyPe(), CkMyNode(), itr, my_load, my_load_after_transfer, avgLoadNeighbor, nbor_nodes_load.c_str()));
-  double threshold = THRESHOLD*avgLoadNeighbor/100.0;
-  
-  avgLoadNeighbor = (avgLoadNeighbor+my_load)/2;
+  double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
+
+  avgLoadNeighbor = (avgLoadNeighbor + my_load) / 2;
   double totalOverload = my_load - avgLoadNeighbor;
   double totalUnderLoad = 0.0;
   double thisIterToSend[neighborCount];
-  for(int i = 0 ;i < neighborCount; i++)
+  for (int i = 0; i < neighborCount; i++)
     thisIterToSend[i] = 0.0;
-  if(totalOverload > 0)
-    for(int i = 0; i < neighborCount; i++) {
-      if(loadNeighbors[i] < (avgLoadNeighbor - threshold)) {
+  if (totalOverload > 0)
+    for (int i = 0; i < neighborCount; i++)
+    {
+      if (loadNeighbors[i] < (avgLoadNeighbor - threshold))
+      {
         thisIterToSend[i] = avgLoadNeighbor - loadNeighbors[i];
         totalUnderLoad += avgLoadNeighbor - loadNeighbors[i];
-//        DEBUGL2(("[PE-%d] iteration %d thisIterToSend %f avgLoadNeighbor %f loadNeighbors[%d] %f to node %d\n",
-//                thisIndex, itr, thisIterToSend[i], avgLoadNeighbor, i, loadNeighbors[i], sendToNeighbors[i]));
+        //        DEBUGL2(("[PE-%d] iteration %d thisIterToSend %f avgLoadNeighbor %f loadNeighbors[%d] %f to node %d\n",
+        //                thisIndex, itr, thisIterToSend[i], avgLoadNeighbor, i, loadNeighbors[i], sendToNeighbors[i]));
       }
     }
-  if(totalUnderLoad > 0 && totalOverload > 0 && totalUnderLoad > totalOverload)
+  if (totalUnderLoad > 0 && totalOverload > 0 && totalUnderLoad > totalOverload)
     totalOverload += threshold;
   else
     totalOverload = totalUnderLoad;
   DEBUGL2(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d totalUndeload %f totalOverLoad %f my_load_after_transfer %f\n", CkMyPe(), itr, totalUnderLoad, totalOverload, my_load_after_transfer));
-  for(int i = 0; i < neighborCount; i++) {
-    if(totalOverload > 0 && totalUnderLoad > 0 && thisIterToSend[i] > 0) {
-//      DEBUGL2(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d(pe-%d) toSend %lf totalToSend %lf\n", CkMyPe(), itr, sendToNeighbors[i], CkNodeFirst(sendToNeighbors[i]), thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad));
-      thisIterToSend[i] *= totalOverload/totalUnderLoad;
+  for (int i = 0; i < neighborCount; i++)
+  {
+    if (totalOverload > 0 && totalUnderLoad > 0 && thisIterToSend[i] > 0)
+    {
+      //      DEBUGL2(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d(pe-%d) toSend %lf totalToSend %lf\n", CkMyPe(), itr, sendToNeighbors[i], CkNodeFirst(sendToNeighbors[i]), thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad));
+      thisIterToSend[i] *= totalOverload / totalUnderLoad;
       toSendLoad[i] += thisIterToSend[i];
       DEBUGL2(("[Node-%d](my load = %lf-%lf) iteration %d thisIterToSend %f (total send %lf)  avgLoadNeighbor %f loadNeighbors[%d] %f to node %d\n",
-                thisIndex, my_load, thisIterToSend[i], itr, thisIterToSend[i], toSendLoad[i], avgLoadNeighbor, i, loadNeighbors[i], sendToNeighbors[i]));
-      if(my_load - thisIterToSend[i] < 0)
+               thisIndex, my_load, thisIterToSend[i], itr, thisIterToSend[i], toSendLoad[i], avgLoadNeighbor, i, loadNeighbors[i], sendToNeighbors[i]));
+      if (my_load - thisIterToSend[i] < 0)
         CkAbort("Get out");
       my_load -= thisIterToSend[i];
     }
-    if(thisIterToSend[i] < 0.0) thisIterToSend[i] = 0.0;
+    if (thisIterToSend[i] < 0.0)
+      thisIterToSend[i] = 0.0;
     int nbor_node = sendToNeighbors[i];
     thisProxy(nbor_node).PseudoLoad(itr, thisIterToSend[i], thisIndex);
   }
@@ -531,9 +587,9 @@ int Diffusion::get_local_obj_idx(int objHandleId)
 }
 #include "omp.h"
 
-void Diffusion::updateLoad(double load) {
-//  my_load_after_transfer += load;
-  
+void Diffusion::updateLoad(double load)
+{
+  //  my_load_after_transfer += load;
 }
 
 void Diffusion::LoadBalancingCentroids()
@@ -595,8 +651,8 @@ void Diffusion::LoadBalancingCentroids()
   // ------ COMPUTE NEIGHBOR (CLOSENESS, LOAD) METRIC -------
   // compute closeness for each neighbor (inverse distance)
   std::vector<std::pair<double, int>> neighbor_closeness(neighborCount);
-    for (int n = 0; n < neighborCount; n++)
-    {
+  for (int n = 0; n < neighborCount; n++)
+  {
     neighbor_closeness[n] = std::make_pair(1 / map_self_to_neighbor_dist[n], n);
   }
 
@@ -604,10 +660,10 @@ void Diffusion::LoadBalancingCentroids()
   double total_closeness = std::accumulate(neighbor_closeness.begin(), neighbor_closeness.end(), 0.0,
                                            [](double sum, std::pair<double, int> i)
                                            { return sum + i.first; });
-    for (int n = 0; n < neighborCount; n++)
-    {
+  for (int n = 0; n < neighborCount; n++)
+  {
     neighbor_closeness[n].first /= total_closeness;
-    }
+  }
 
   // compute load for each neighbor
   std::vector<double> neighbor_load(neighborCount);
@@ -665,7 +721,7 @@ void Diffusion::LoadBalancingCentroids()
     std::sort(obj_metric_pairs.begin(), obj_metric_pairs.end(), [&](std::pair<double, int> i, std::pair<double, int> j)
               { return i.first > j.first; });
 
-     // find the first object that can be sent to this neighbor
+    // find the first object that can be sent to this neighbor
     int obj_local_idx = -1;
     double obj_load = -1;
     for (int i = 0; i < obj_metric_pairs.size(); i++)
@@ -694,7 +750,7 @@ void Diffusion::LoadBalancingCentroids()
     my_load_after_transfer -= obj_load;
 
     node_cache_obj->updated_map_obid_pe[obj_global_idx] = globalNeighborId;
-//    toSendNeighborsLoad[curr_neighbor] += obj_load;
+    //    toSendNeighborsLoad[curr_neighbor] += obj_load;
     // CkPrintf("Migrating object %d to neighbor %d\n", obj_global_idx, globalNeighborId);
     avail_objects.erase(std::remove(avail_objects.begin(), avail_objects.end(), obj_local_idx), avail_objects.end());
   }
@@ -703,13 +759,17 @@ void Diffusion::LoadBalancingCentroids()
   contribute(cbm);
 }
 
-void Diffusion::LoadBalancing() {
+void Diffusion::LoadBalancing()
+{
   int migrated_obj_count = 0;
-  for(int knbor=0;knbor<neighborCount;knbor++) {
+  for (int knbor = 0; knbor < neighborCount; knbor++)
+  {
 
-    if(toSendLoad[knbor]<0.0) continue;
+    if (toSendLoad[knbor] < 0.0)
+      continue;
 
-    while(my_load_after_transfer > 0.0 && toSendLoad[knbor]>0.0) {
+    while (my_load_after_transfer > 0.0 && toSendLoad[knbor] > 0.0)
+    {
 
       int n_objs = objects.size();
       objectComms.resize(n_objs);
@@ -717,120 +777,130 @@ void Diffusion::LoadBalancing() {
       gain_val = new int[n_objs];
       memset(gain_val, 100, n_objs);
 
-
-      for(int i = 0; i < n_objs; i++) {
-        objectComms[i].resize(NUM_NEIGHBORS+2);
-        for(int j = 0; j < NUM_NEIGHBORS+2; j++)
+      for (int i = 0; i < n_objs; i++)
+      {
+        objectComms[i].resize(NUM_NEIGHBORS + 2);
+        for (int j = 0; j < NUM_NEIGHBORS + 2; j++)
           objectComms[i][j] = 0;
       }
 
-    computeObjectComm(objectComms, n_objs);
-  // calculate the gain value, initialize the heap.
-  double threshold = THRESHOLD*avgLoadNeighbor/100.0;
+      computeObjectComm(objectComms, n_objs);
+      // calculate the gain value, initialize the heap.
+      double threshold = THRESHOLD * avgLoadNeighbor / 100.0;
 
-  if(thisIndex==0)
-    DEBUGL(("\nIterating through toSendLoad of size %lu", neighborCount));
+      if (thisIndex == 0)
+        DEBUGL(("\nIterating through toSendLoad of size %lu", neighborCount));
 
-  if(n_objs != objectComms.size())
-    DEBUGL(("\nError %d!=%d", n_objs, objectComms.size()));
+      if (n_objs != objectComms.size())
+        DEBUGL(("\nError %d!=%d", n_objs, objectComms.size()));
 
-  obj_arr = new int[n_objs];
+      obj_arr = new int[n_objs];
 
-  for(int i = 0; i < n_objs; i++)
-    gain_val[i] = -objectComms[i][knbor];
+      for (int i = 0; i < n_objs; i++)
+        gain_val[i] = -objectComms[i][knbor];
 
-  // T1: create a heap based on gain values, and its position also.
+      // T1: create a heap based on gain values, and its position also.
 
-  obj_heap.resize(n_objs);
-  heap_pos.resize(n_objs);
-//  objs.resize(n_objs);
+      obj_heap.resize(n_objs);
+      heap_pos.resize(n_objs);
+      //  objs.resize(n_objs);
 
-  //Creating a minheap of objects based on gain value
-  InitializeObjHeap(obj_arr, n_objs, gain_val);
+      // Creating a minheap of objects based on gain value
+      InitializeObjHeap(obj_arr, n_objs, gain_val);
 
-  // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
-  int v_id;
-  double totalSent = 0;
-  int counter = 0;
+      // T2: Actual load balancingDecide which node it should go, based on object comm data structure. Let node be n
+      int v_id;
+      double totalSent = 0;
+      int counter = 0;
 
-//  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
-  int n_count = 0;
+      //  CkPrintf("\n[SimNode-%d] my_load Before Transfer = %lf\n", thisIndex,my_load_after_transfer);
+      int n_count = 0;
 #if 1
-    DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
-//    CkPrintf("\nheap size before = %d", obj_heap.size());
-    v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
+      DEBUGL(("\n On SimNode-%d, check to pop", thisIndex));
+      //    CkPrintf("\nheap size before = %d", obj_heap.size());
+      v_id = heap_pop(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
 
-//    CkPrintf("\nheap size after = %d", obj_heap.size());
+      //    CkPrintf("\nheap size after = %d", obj_heap.size());
 
-    /*If the heap becomes empty*/
-    if(v_id == -1) {//objects.size()){//v_id==-1) {
-      DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
-      break;
-    }
-    int objHandle = objects[v_id].getVertexId();
-    if(!obj_on_node(get_obj_idx(objHandle))) {
-//      CkPrintf("\nobject %d not on node", v_id);
-      continue;
-    }
+      /*If the heap becomes empty*/
+      if (v_id == -1)
+      { // objects.size()){//v_id==-1) {
+        DEBUGL(("\n On SimNode-%d, empty heap", thisIndex));
+        break;
+      }
+      int objHandle = objects[v_id].getVertexId();
+      if (!obj_on_node(get_obj_idx(objHandle)))
+      {
+        //      CkPrintf("\nobject %d not on node", v_id);
+        continue;
+      }
 
-//    CkPrintf("\n On SimNode-%d, popped v_id = %d (handle%d)", thisIndex, v_id, objHandle);
+      //    CkPrintf("\n On SimNode-%d, popped v_id = %d (handle%d)", thisIndex, v_id, objHandle);
 
-    double currLoad = objects[v_id].getVertexLoad();
-    if(!objects[v_id].isMigratable()) {
-//      CkPrintf("not migratable \n");
-      continue;
-    }
+      double currLoad = objects[v_id].getVertexLoad();
+      if (!objects[v_id].isMigratable())
+      {
+        //      CkPrintf("not migratable \n");
+        continue;
+      }
 
-    objects.erase(objects.begin()+v_id, objects.begin()+v_id+1);
-//    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
+      objects.erase(objects.begin() + v_id, objects.begin() + v_id + 1);
+      //    CkPrintf("\n[PE-%d] object id = %d, load = %lf", thisIndex, v_id, currLoad);
 
-        DEBUGL(("\n[PE-%d] knbor = %d node = %d load = %lf to_send_total =%lf", thisIndex, knbor,sendToNeighbors[knbor],currLoad,toSendLoad[knbor]));
+      DEBUGL(("\n[PE-%d] knbor = %d node = %d load = %lf to_send_total =%lf", thisIndex, knbor, sendToNeighbors[knbor], currLoad, toSendLoad[knbor]));
 
-      if(1) {
+      if (1)
+      {
         migrated_obj_count++;
         int node = sendToNeighbors[knbor];
         toSendLoad[knbor] -= currLoad;
         totalSent += currLoad;
-        
+
         int receiverNodePE = node;
-//        thisProxy[receiverNodePE].informOfArrivingObj(objId, currPE, currLoad); //Inform the rank-0 on receiving node
-        //emig_objs.push_back(std::make_pair(objId, currPE, currLoad));
-//        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
+        //        thisProxy[receiverNodePE].informOfArrivingObj(objId, currPE, currLoad); //Inform the rank-0 on receiving node
+        // emig_objs.push_back(std::make_pair(objId, currPE, currLoad));
+        //        thisProxy[initPE].LoadReceived(objId, receiverNodePE); //Create migration message already?
 
         node_cache_obj->updated_map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
         local_map_obid_pe[get_obj_idx(objHandle)] = receiverNodePE;
         diff_array(receiverNodePE).updateLoad(currLoad);
 
         my_load_after_transfer -= currLoad;
-//        CkPrintf("\nSending load %lf from node-%d(load %lf) to node-%d (load %lf)", currLoad, thisIndex, my_load_after_transfer, receiverNodePE,diffRecv->my_load_after_transfer);
+        //        CkPrintf("\nSending load %lf from node-%d(load %lf) to node-%d (load %lf)", currLoad, thisIndex, my_load_after_transfer, receiverNodePE,diffRecv->my_load_after_transfer);
         loadNeighbors[knbor] += currLoad;
       }
-      else {
+      else
+      {
         DEBUGL(("[%d] knbor is negative currLoad %f \n", CkMyPe(), currLoad));
       }
-    } //end of while
+    } // end of while
   }
 #endif
-  for(int i = 0 ; i < neighborCount; i++) {
+  for (int i = 0; i < neighborCount; i++)
+  {
     double to_send_total = 0.0;
-    if(toSendLoad[i] > 0.0) {
+    if (toSendLoad[i] > 0.0)
+    {
       to_send_total += toSendLoad[i];
-      DEBUGL(("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total,sendToNeighbors[i]));
+      DEBUGL(("\nNode-%d (load %lf), I was not able to send load %lf to Node-%d", thisIndex, my_load_after_transfer, to_send_total, sendToNeighbors[i]));
     }
   }
-  CkPrintf("\nSimNode#%d - After LB load = %lf and migrating %d objects", thisIndex, my_load, migrated_obj_count); fflush(stdout);
-  if(CkMyPe()==0) {
+  fflush(stdout);
+  if (CkMyPe() == 0)
+  {
     CkCallback cbm(CkReductionTarget(Diffusion, finishLB), thisProxy);
     CkStartQD(cbm);
   }
 }
 
-void Diffusion::InitializeObjHeap(int* obj_arr,int n, int* gain_val) {
-  for(int i = 0; i < n; i++) {
+void Diffusion::InitializeObjHeap(int *obj_arr, int n, int *gain_val)
+{
+  for (int i = 0; i < n; i++)
+  {
     obj_arr[i] = i;
-    obj_heap[i]=obj_arr[i];
-    heap_pos[obj_arr[i]]=i;
-  } 
+    obj_heap[i] = obj_arr[i];
+    heap_pos[obj_arr[i]] = i;
+  }
   heapify(obj_heap, ObjCompareOperator(&objects, gain_val), heap_pos);
 }
 
