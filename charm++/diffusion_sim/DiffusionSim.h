@@ -102,7 +102,7 @@ public:
     void sortArr(long *arr, int n, int *nbors);
     void addNeighbor(int nbor);
 
-    void begin();
+    void beginMST();
     void buildMSTinRounds(double best_weight, int best_from, int best_to);
     void next_MSTphase(double newweight, int newparent, int newto);
     void startFirstRound();
@@ -116,8 +116,9 @@ public:
     void startStrategy();
 
     // centroid list SDAG helpers
+    void initializeCentroid();
     void processReceiveCentroid(int node, std::vector<LBRealType> centroid, int objCount);
- 
+    void finishCentroidList();
 };
 
 void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external);
