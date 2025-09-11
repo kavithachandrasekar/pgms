@@ -1,5 +1,6 @@
 #include "DiffusionSim.h"
 #include "DiffusionNeighbors.C"
+#include "../sim_headers/lbdump_jsontools.h"
 
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_NodeCache nodeCacheProxy;
@@ -52,27 +53,23 @@ void readInputStats(const char *input_filename, BaseLB::LDStats *statsData, int 
 
     // Read global stats from file
 
-    PUP::fromDisk pd(f);
-    PUP::machineInfo machInfo;
+    // PUP::fromDisk pd(f);
+    // PUP::machineInfo machInfo;
 
-    pd((char *)&machInfo, sizeof(machInfo)); // read machine info
-    PUP::xlater p(machInfo, pd);
+    // pd((char *)&machInfo, sizeof(machInfo)); // read machine info
+    // PUP::xlater p(machInfo, pd);
 
-    if (_lb_args.lbversion() > 1)
-    {
-        p | _lb_args.lbversion(); // write version number
-        CmiAssert(_lb_args.lbversion() <= LB_FORMAT_VERSION);
-    }
+    // if (_lb_args.lbversion() > 1)
+    // {
+    //     p | _lb_args.lbversion(); // write version number
+    //     CmiAssert(_lb_args.lbversion() <= LB_FORMAT_VERSION);
+    // }
 
-    p | stats_msg_count;
+    // p | stats_msg_count;
 
-    statsData->pup(p);
+    // statsData->pup(p);
+    read_from_json(f, statsData);
 
-    int nmigobj = std::count_if(statsData->objData.begin(), statsData->objData.end(),
-                                [](const auto &obj)
-                                { return obj.migratable; });
-
-    statsData->n_migrateobjs = nmigobj;
     statsData->makeCommHash(); // set up the ldstats objHash, which maps LDObjKey to index in objData
 }
 
@@ -96,7 +93,7 @@ Main::Main(CkArgMsg *m)
     readInputStats(input_filename.c_str(), globalStatsData, stats_msg_count);
     numNodes = globalStatsData->procs.size();
 
-    CkPrintf("Global stats parsed by Main: %d nodes and %d migratable objects \n", numNodes, globalStatsData->n_migrateobjs);
+    CkPrintf("Global stats from %s parsed by Main: %d nodes and %d migratable objects \n", input_filename.c_str(), numNodes, globalStatsData->n_migrateobjs);
 
     nodeCacheProxy = CProxy_NodeCache::ckNew();
 }
@@ -127,10 +124,10 @@ void Main::checkStats(double *comm, int n)
     computeLoad(globalStatsData, load);
 
     if (computedInternal != internalBytes || computedExternal != externalBytes)
-        CkAbort("Fatal Error> Global and locally computed bytes don't match!\n");
+        CkAbort("Fatal Error> Global and locally computed bytes don't match: %f %f!\n", computedInternal, internalBytes);
 
     if (loadSum != load)
-        CkAbort("Fatal Error> Global and locally computed load don't match!\n");
+        CkAbort("Fatal Error> Global and locally computed load don't match: %f %f!\n", loadSum, load);
 
     statsBefore.internal = internalBytes;
     statsBefore.external = externalBytes;
@@ -157,7 +154,7 @@ NodeCache::NodeCache()
     int stats_msg_count;
     readInputStats(input_filename.c_str(), globalStatsData, stats_msg_count);
 
-    CkPrintf("Global stats parsed by NodeCache%d: %d nodes and %d migratable objects \n", thisIndex, numNodes, globalStatsData->n_migrateobjs);
+    CkPrintf("Global stats from %s parsed by NodeCache%d: %d nodes and %d migratable objects \n", input_filename.c_str(), thisIndex, numNodes, globalStatsData->n_migrateobjs);
     contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 }
 
