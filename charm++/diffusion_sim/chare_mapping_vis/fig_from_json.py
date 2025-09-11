@@ -1,3 +1,5 @@
+#%%
+
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
@@ -8,27 +10,10 @@ import json
 import sys
 from matplotlib.patches import Patch
 
-def main():
-  if len(sys.argv) < 2:
-    print("Usage: python fig_from_json.py <input.json>")
-    sys.exit(1)
+from math import floor
 
-  input_file = sys.argv[1]
-  with open(input_file, 'r') as f:
-    data = json.load(f)
   
-  objects = data['objData']
-  data_old_pe = []
-  data_new_pe = []
-  positions = []
-  
-  for obj in objects:
-    print(obj)
-    data_old_pe.append(objects[obj]['oldpe'])
-    data_new_pe.append(objects[obj]['newpe'])
-    positions.append((objects[obj]['position'][0], objects[obj]['position'][1]))
-
-
+def plot_pes(data_old_pe, data_new_pe, positions, mode):
   num_colors = max(data_old_pe) + 1
   cmap = cm.get_cmap('tab20', num_colors) if num_colors <= 20 else cm.get_cmap('hsv', num_colors)
   colors = [cmap(i) for i in range(num_colors)]
@@ -37,8 +22,6 @@ def main():
   x = [pos[0] / max(pos[0] for pos in positions) for pos in positions]
   y = [pos[1] / max(pos[1] for pos in positions) for pos in positions]
 
-  
-  
   fig, axs = plt.subplots(1, 2, figsize=(12, 6), sharex=True, sharey=True)
 
   axs[0].scatter(x, y, c=[colors[pe] for pe in data_old_pe])
@@ -49,12 +32,41 @@ def main():
 
   # Add legend to the first subplot only
   unique_pes = sorted(set(data_old_pe))
-  handles = [Patch(color=colors[pe], label=f'PE {pe}') for pe in unique_pes]
+  handles = [Patch(color=colors[pe], label=f'{mode} {pe}') for pe in unique_pes]
   axs[0].legend(handles=handles)
 
   plt.tight_layout()
   plt.show()
 
+def plot(json_file, mode = 'pe'):
+  with open(json_file, 'r') as f:
+    data = json.load(f)
+  
+  objects = data['objData']
+  data_old_pe = []
+  data_new_pe = []
+  positions = []
+  old_nodes = []
+  new_nodes = []
+  num_nodes = data['n_nodes']
+  num_pes = data['n_procs']
+  
+  print("pes per node: ", num_pes / num_nodes)
+  
+  for obj in objects:
+    print(obj)
+    data_old_pe.append(objects[obj]['oldpe'])
+    data_new_pe.append(objects[obj]['newpe'])
+    positions.append((objects[obj]['position'][0], objects[obj]['position'][1]))
+    old_nodes.append(floor(objects[obj]['oldpe'] / (num_pes / num_nodes)))
+    new_nodes.append(floor(objects[obj]['newpe'] / (num_pes / num_nodes)))
 
-if __name__ == "__main__":
-  main()
+  if (mode == 'node'):
+    plot_pes(old_nodes, new_nodes, positions, mode)
+  else:
+    plot_pes(data_old_pe, data_new_pe, positions, mode)
+
+# %%
+plot("/Users/maya/software/charm-diffusionlb/examples/charm++/load_balancing/stencil3d/lbdump.json", 'node')
+
+# %%
