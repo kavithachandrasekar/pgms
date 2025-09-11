@@ -27,7 +27,7 @@ mainmodule DiffusionSim
 
         // in DiffusionNeighbors.C
         entry void findNBors(int do_again);
-        entry void beginMST();
+        entry void begin();
         entry void buildMSTinRounds(double best_weight, int best_from, int best_to);
         entry void next_MSTphase(double newweight, int newparent, int newto);
         entry void startFirstRound();
