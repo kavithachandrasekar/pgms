@@ -15,12 +15,15 @@ DiffusionSim.ci.stamp: DiffusionSim.ci
 	$(CHARMC) $<
 	touch $@
 
-DiffusionSim.o: DiffusionSim.C DiffusionSim.decl.h DiffusionSim.def.h DiffusionSim.h ../sim_headers/common_lbsim.h DiffusionNeighbors.C
+DiffusionSim.o: DiffusionSim.C DiffusionSim.decl.h DiffusionSim.def.h DiffusionSim.h ../sim_headers/common_lbsim.h DiffusionNeighbors.C DiffusionMetric.C
 	$(CHARMC) -c DiffusionSim.C
 
 DiffusionNeighbors.C: $(CHARM_HOME)/src/ck-ldb/DiffusionNeighbors.C
 	cp $< .
 
+DiffusionMetric.C: $(CHARM_HOME)/src/ck-ldb/DiffusionMetric.C
+	cp $< .
+
 clean:
-	rm -f *.decl.h *.def.h conv-host *.o DiffusionSim DiffusionSim.prj charmrun *~ *.stamp DiffusionNeighbors.C
+	rm -f *.decl.h *.def.h conv-host *.o DiffusionSim DiffusionSim.prj charmrun *~ *.stamp DiffusionNeighbors.C DiffusionMetric.C
 
