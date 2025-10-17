@@ -80,6 +80,8 @@ void readInputStats(const char *input_filename, BaseLB::LDStats *statsData, int 
     }
     else
     {
+        if (_lb_args.diffusionCommOn())
+            CkAbort("Simulator doesn't work with JSON and comm yet. Use centroid, or generate initial data some other way.\n");
         read_from_json(f, statsData);
     }
 
