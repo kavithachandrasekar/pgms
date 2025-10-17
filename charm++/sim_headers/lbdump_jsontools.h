@@ -63,6 +63,8 @@ void read_from_json(FILE *f, BaseLB::LDStats *statsDatax) {
                                 { return obj.migratable; });
 
     statsDatax->n_migrateobjs = nmigobj;
-    statsDatax->procs.resize(jsonData["n_nodes"]); // Clear existing procs
+    statsDatax->procs.resize(num_procs); // Clear existing procs
+
+    statsDatax->n_nodes = num_nodes;
 
 }
