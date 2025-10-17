@@ -10,6 +10,7 @@
 #define NUM_NEIGHBORS _lb_args.diffusionNumNbors()
 
 /*readonly*/ int numNodes;
+/*readonly*/ int numPes;
 
 struct statsToPrint
 {
@@ -58,6 +59,10 @@ private:
     int rank0PE;
 
     double my_load;
+    double my_loadAfterTransfer;
+
+    std::vector<CkVertex> objs;
+    
 
     void setupLocalStats(BaseLB::LDStats *statsData);
 
@@ -93,7 +98,15 @@ private:
 public:
     DiffusionLB_SDAG_CODE
     DiffusionLB();
+    ~DiffusionLB();
     void reportMaxLoad();
+
+     int LBwriteStatsMsgs(BaseLB::LDStats* statsData);
+
+    void ReceiveFinalStats(std::vector<bool> isMigratable, std::vector<int> from_proc,
+                         std::vector<int> to_proc, int n_migrateobjs,
+                         std::vector<std::vector<LBRealType>> positions,
+                         std::vector<double> load);
 
     // in DiffusionNeighbors.C
     void findNBors(int do_again);
@@ -114,15 +127,65 @@ public:
     void pairedSort(int *A, std::vector<double> B);
 
     void startStrategy();
+    void WithinNodeLB();
+    void AcrossNodeLB();
 
+    void BuildStats();
     // centroid list SDAG helpers
     void initializeCentroid();
     void processReceiveCentroid(int node, std::vector<LBRealType> centroid, int objCount);
     void finishCentroidList();
+
+    int findNborIdx(int node);
+    void PseudoLoadBalancing();
+    void pseudolb_barrier(int allZero);
+
+
+    int pseudo_itr;  // iteration count
+    int temp_itr;
+    bool pseudo_done;
+    int loadReceivers;
+
+    std::vector<double> toSendLoad;
+    std::vector<double> toReceiveLoad;
+    std::vector<double> loadNeighbors;
+    double my_pseudo_load;
+
+    int* gain_val;
+
+    int GetPENumber(int& obj_id);
+    void LoadMetaInfo(LDObjHandle objHandle, int objId, double load, int from_pe, int to_pe);
+    void LoadReceived(int objId, int fromPE);
+    int step();
+
+          void ProcessMigrations();
+  void ProcessFinalStats();
+
+  double averagePE();
+
+    int statsReceived;
+
+      BaseLB::LDStats* fullStats;
+
+   int migrates_expected;
+     std::vector<double> pe_load;
+       std::vector<double> objectLoads;
+
+       std::vector<LDObjHandle> objectHandles;
+  std::vector<int> objectSrcIds;
+  std::vector<int> objSenderPEs;
+
+    int total_migrates;
+
+    int numPes;
+
+
+    int FindObjectHandle(LDObjHandle h);
 };
 
 void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external);
 void computeLoad(BaseLB::LDStats *statsData, double &load);
 void printStats(statsToPrint &stats);
+
 
 #endif /* _DIFFUSIONSIM_H_ */

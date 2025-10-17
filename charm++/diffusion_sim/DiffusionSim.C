@@ -1,11 +1,22 @@
 #include "DiffusionSim.h"
 #include "DiffusionNeighbors.C"
+#include "DiffusionMetric.C"
+#include "DiffusionPseudo.C"
+
+#include "DiffusionCore.C"
+
 #include "../sim_headers/lbdump_jsontools.h"
+
+#include "LBSimulation.h"
+
 
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_NodeCache nodeCacheProxy;
 /*readonly*/ CProxy_DiffusionLB diffusion_array;
 /*readonly*/ std::string input_filename;
+
+#define ITERATIONS 40
+
 
 obj_imb_funcptr getImbalanceFunction(int fn_type)
 {
@@ -51,24 +62,26 @@ void readInputStats(const char *input_filename, BaseLB::LDStats *statsData, int 
     if (f == NULL)
         CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", input_filename);
 
-    // Read global stats from file
+    bool isJson = false;
+    const char* dot = strrchr(input_filename, '.');
+    if (dot != nullptr && strcmp(dot, ".json") == 0) {
+        isJson = true;
+    }
 
-    // PUP::fromDisk pd(f);
-    // PUP::machineInfo machInfo;
+    if (!isJson) {
+        // this only works if file was pupped via CentralLB
+        PUP::fromDisk pd(f);
+        PUP::machineInfo machInfo;
+        pd((char *)&machInfo, sizeof(machInfo));	// machine info
 
-    // pd((char *)&machInfo, sizeof(machInfo)); // read machine info
-    // PUP::xlater p(machInfo, pd);
-
-    // if (_lb_args.lbversion() > 1)
-    // {
-    //     p | _lb_args.lbversion(); // write version number
-    //     CmiAssert(_lb_args.lbversion() <= LB_FORMAT_VERSION);
-    // }
-
-    // p | stats_msg_count;
-
-    // statsData->pup(p);
-    read_from_json(f, statsData);
+        pd|_lb_args.lbversion();		// write version number
+        pd|stats_msg_count;
+        statsData->pup(pd);
+    }
+    else
+    {
+        read_from_json(f, statsData);
+    }
 
     statsData->makeCommHash(); // set up the ldstats objHash, which maps LDObjKey to index in objData
 }
@@ -91,7 +104,7 @@ Main::Main(CkArgMsg *m)
 
     globalStatsData = new BaseLB::LDStats();
     readInputStats(input_filename.c_str(), globalStatsData, stats_msg_count);
-    numNodes = globalStatsData->procs.size();
+    numNodes = globalStatsData->n_nodes;
 
     CkPrintf("Global stats from %s parsed by Main: %d nodes and %d migratable objects \n", input_filename.c_str(), numNodes, globalStatsData->n_migrateobjs);
 
@@ -123,10 +136,10 @@ void Main::checkStats(double *comm, int n)
     computeCommBytes(globalStatsData, internalBytes, externalBytes);
     computeLoad(globalStatsData, load);
 
-    if (computedInternal != internalBytes || computedExternal != externalBytes)
+    if (computedInternal - internalBytes > 1e-6 || computedExternal - externalBytes > 1e-6)
         CkAbort("Fatal Error> Global and locally computed bytes don't match: %f %f!\n", computedInternal, internalBytes);
 
-    if (loadSum != load)
+    if (loadSum - load > 1e-6)
         CkAbort("Fatal Error> Global and locally computed load don't match: %f %f!\n", loadSum, load);
 
     statsBefore.internal = internalBytes;
@@ -151,17 +164,31 @@ void Main::done()
 NodeCache::NodeCache()
 {
     globalStatsData = new BaseLB::LDStats();
-    int stats_msg_count;
+    int stats_msg_count = 0;
     readInputStats(input_filename.c_str(), globalStatsData, stats_msg_count);
 
     CkPrintf("Global stats from %s parsed by NodeCache%d: %d nodes and %d migratable objects \n", input_filename.c_str(), thisIndex, numNodes, globalStatsData->n_migrateobjs);
     contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 }
 
+DiffusionLB::~DiffusionLB()
+{
+#if CMK_LBDB_ON
+  delete nodeStats;
+  delete[] gain_val;
+#endif
+}
+
 void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
 {
 
     BaseLB::LDStats *globalStats = myNodeCache->globalStatsData;
+
+    nodeStats->objData.clear();
+    nodeStats->from_proc.clear();
+    nodeStats->to_proc.clear();
+    nodeStats->commData.clear();
+
 
     // get relevant object stats
     int nmigratable = 0;
@@ -183,6 +210,16 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
     }
     nodeStats->n_migrateobjs = nmigratable;
     nodeStats->makeCommHash(); // set up the ldstats objHash, which maps LDObjKey to index in objData
+
+    objs.clear();
+    objs.resize(nodeStats->objData.size());
+
+    for (int nobj = 0; nobj < nodeStats->objData.size(); nobj++)
+    {
+        LDObjData& oData = nodeStats->objData[nobj];
+        objs[nobj] = CkVertex(nobj, oData.wallTime, nodeStats->objData[nobj].migratable,
+                              nodeStats->from_proc[nobj]);
+    }
 
     // get relevant comm stats
     for (int comm = 0; comm < globalStats->commData.size(); comm++)
@@ -272,6 +309,8 @@ DiffusionLB::DiffusionLB()
     computeLoad(nodeStats, load);
 
     my_load = load;
+    my_loadAfterTransfer = my_load;
+
 
     // setup for DiffusionNeighbors.C
     round = 0;
@@ -285,6 +324,19 @@ DiffusionLB::DiffusionLB()
     myNodeId = thisIndex;
     rank0PE = thisIndex;
     nodeSize = 1;
+    statsReceived = 0;
+    total_migrates = 0;
+
+    numPes = numNodes;
+    CkPrintf("DiffusionLB on PE %d: numPes = %d\n", thisIndex, numPes);
+
+    if (myNodeId == 0)
+    {
+        fullStats = new BaseLB::LDStats(CkNumPes());
+        
+     }
+     
+     pe_load.resize(nodeSize);
 
     CkCallback cs(CkReductionTarget(Main, checkStats), mainProxy);
     double comm[3];
@@ -297,10 +349,32 @@ DiffusionLB::DiffusionLB()
     thisProxy[thisIndex].findNBors(0);
 }
 
-void DiffusionLB::startStrategy()
+void DiffusionLB::WithinNodeLB()
 {
-    CkPrintf("Starting strategy. Node %d has %d neighbors\n", myNodeId, sendToNeighbors.size());
-    CkExit();
+    if (thisIndex == 0)
+    if (_lb_args.debug()) CkPrintf("--------STARTING WITHIN NODE LB--------\n");
+
+    if(nodeSize==1) {
+      if (_lb_args.debug()) CkPrintf("--------Node size is 1--------\n");
+
+    if (thisIndex == 0)
+    {
+      if (step() == LBSimulation::dumpStep)
+      {
+        CkCallback cb(CkIndex_DiffusionLB::ProcessFinalStats(), thisProxy);
+         CkStartQD(cb);
+      }
+      else
+      {
+        CkCallback cb(CkIndex_DiffusionLB::ProcessMigrations(), thisProxy);
+        CkStartQD(cb);
+      }
+    }
+   
+  } else {
+    CkAbort("nodesize should always be 1 in simulator");
+  }
+
 }
 
 void DiffusionLB::pairedSort(int *A, std::vector<double> B)
@@ -321,4 +395,25 @@ void DiffusionLB::pairedSort(int *A, std::vector<double> B)
         A[i] = vp[i].second;
     }
 }
+
+int DiffusionLB::GetPENumber(int& obj_id)
+{
+    return 0;
+}
+
+void DiffusionLB::LoadReceived(int objId, int from0PE)
+{
+    total_migrates++;
+}
+
+int DiffusionLB::step() {
+    return LBSimulation::dumpStep;
+}
+
+void DiffusionLB::ProcessMigrations()
+{
+    // done
+    CkExit();
+}
+
 #include "DiffusionSim.def.h"
