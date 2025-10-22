@@ -1,6 +1,6 @@
 -include ../../../common.mk
 OPTS	= -g
-CHARMC	= ../../../../../netlrts-linux-x86_64-smp/bin/charmc $(OPTS)
+CHARMC	= $(CHARM_HOME)/bin/charmc $(OPTS)
 
 OBJS = GreedyRefineLB.o
 

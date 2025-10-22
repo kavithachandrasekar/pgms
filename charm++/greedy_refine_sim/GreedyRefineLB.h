@@ -28,6 +28,7 @@
 #include "CentralLB.h"
 #include "GreedyRefineLB.decl.h"
 
+
 void CreateGreedyRefineLB();
 BaseLB *AllocateGreedyRefineLB();
 
@@ -49,6 +50,9 @@ public:
   std::vector<int>map_obj_id;
   std::vector<int>map_obid_pe;
   int numNodes;
+
+  int obj_updated_node_map(int obj_id);
+
 
 private:
   bool QueryBalanceNow(int step) { return true; }

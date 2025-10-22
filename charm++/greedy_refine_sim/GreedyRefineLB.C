@@ -26,6 +26,9 @@
 
 #include "../sim_headers/common_lbsim.h"
 
+#include "../sim_headers/lbdump_jsontools.h"
+
+
 #include <float.h>
 #include <limits.h>
 #include <algorithm>
@@ -57,7 +60,8 @@ class Main : public CBase_Main {
         obj_imb = (obj_imb_funcptr) load_imb_by_history;
     }
     const char* filename = "lbdata.dat.0";
-        int i;
+    
+    int i;
     FILE *f = fopen(filename, "r");
     if (f==NULL) {
       CkAbort("Fatal Error> Cannot open LB Dump file %s!\n", filename);
@@ -67,22 +71,18 @@ class Main : public CBase_Main {
     statsDatax->from_proc.reserve(SIZE);
     statsDatax->to_proc.reserve(SIZE);
     statsDatax->commData.reserve(SIZE);
+
+
     PUP::fromDisk pd(f);
     PUP::machineInfo machInfo;
+    pd((char *)&machInfo, sizeof(machInfo));	// machine info
 
-    pd((char *)&machInfo, sizeof(machInfo));  // read machine info
-    PUP::xlater p(machInfo, pd);
+    pd|_lb_args.lbversion();		// write version number
+    pd|stats_msg_count;
 
-    if (_lb_args.lbversion() > 1) {
-      p|_lb_args.lbversion();   // write version number
-      CkPrintf("LB> File version detected: %d\n", _lb_args.lbversion());
-      CmiAssert(_lb_args.lbversion() <= LB_FORMAT_VERSION);
-    }
-    p|stats_msg_count;
+    CmiPrintf("Reading LB Dump file %s ...\n", filename);
 
-    CmiPrintf("readStatsMsgs for %d pes starts ... \n", stats_msg_count);
-
-    statsDatax->pup(p);
+    statsDatax->pup(pd);
 
     CmiPrintf("n_obj: %zu n_migratable: %d \n", statsDatax->objData.size(), statsDatax->n_migrateobjs);
 
@@ -124,29 +124,30 @@ class Main : public CBase_Main {
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       if (!statsData->objData[obj].migratable)
         continue;
-      statsData->from_proc[obj] = greedy_obj->map_obid_pe[obj];
+      //statsData->from_proc[obj] = greedy_obj->map_obid_pe[obj];
        std::vector<LBRealType> pos = statsData->objData[obj].position;
-      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
 
     }
     const char* filename = "lbdata.dat.out.0";
-    FILE *f = fopen(filename, "w");
-    if (f==NULL) {
-      CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
-    }
-    const PUP::machineInfo &machInfo = PUP::machineInfo::current();
-    PUP::toDisk p(f);
-    p((char *)&machInfo, sizeof(machInfo)); // machine info
+    // FILE *f = fopen(filename, "w");
+    // if (f==NULL) {
+    //   CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
+    // }
+    // const PUP::machineInfo &machInfo = PUP::machineInfo::current();
+    // PUP::toDisk p(f);
+    // p((char *)&machInfo, sizeof(machInfo)); // machine info
 
-    p|_lb_args.lbversion();   // write version number
-    p|stats_msg_count;
-    statsData->pup(p);
+    // p|_lb_args.lbversion();   // write version number
+    // p|stats_msg_count;
+    // statsData->pup(p);
 
-    fclose(f);
+    // fclose(f);
+
+    write_to_json(statsData);
 
     CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
-      CkPrintf("\nDONE");fflush(stdout);
-      CkExit(0);
+    CkPrintf("\nDONE");fflush(stdout);
+    CkExit(0);
   }
 };
 
@@ -357,6 +358,10 @@ void GreedyRefineLB::dumpProcLoads(std::vector<GreedyRefineLB::GProc> &procs) {
 }
 #endif
 
+int GreedyRefineLB::obj_updated_node_map(int obj_id) {
+  return map_obid_pe[obj_id];
+}
+
 double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
                             std::vector<GreedyRefineLB::GObj> &objs,
                             std::vector<GreedyRefineLB::GObj*> &pobjs,
@@ -493,12 +498,13 @@ void GreedyRefineLB::sendSolution(double maxLoad, int migrations)
 }
 
 void GreedyRefineLB::AtSync() {
+  CkPrintf("\nGreedyRefineLB::AtSync called on PE %d", CkMyPe());
   work();
 }
 
 void GreedyRefineLB::work()
 {
-  computeCommBytes(stats, this, 0);
+  computeCommBytes(stats, this, 1);
   strategyStartTime = CkWallTimer();
   float A = 1.001, B = FLT_MAX; // Use A=0, B=-1 to imitate regular Greedy (ignore migrations)
   if (concurrent) {
@@ -593,7 +599,7 @@ void GreedyRefineLB::work()
     }
     CkPrintf("[%d] GreedyRefineLB: after lb, max_load=%.3f, migrations=%d(%.2f%%), ratioToGreedy=%.3f\n",
              CkMyPe(), maxLoad, nmoves, 100.0*migrationRatio, greedyRatio);
-    computeCommBytes(stats, this, 1);
+    computeCommBytes(stats, this, 0);
     CkCallback cb(CkReductionTarget(Main, done), mainProxy);
     contribute(cb);
   }
