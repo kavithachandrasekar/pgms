@@ -124,6 +124,26 @@ void Main::collectMaxLoad(double load)
     printStats(statsBefore);
 }
 
+void Main::collectMaxLoadFinal(double load)
+{
+    statsAfter.maxload = load;
+    printStats(statsAfter);
+    CkExit();
+}
+
+void Main::finalStats(double *comm, int n) {
+    double internalBytes = comm[0];
+    double externalBytes = comm[1];
+    double loadSum = comm[2];
+
+    statsAfter.internal = internalBytes;
+    statsAfter.external = externalBytes;
+    statsAfter.avgload = loadSum / numNodes;
+
+    diffusion_array.reportMaxLoad(true);
+}
+
+
 void Main::checkStats(double *comm, int n)
 {
     double computedInternal = comm[0];
@@ -135,7 +155,7 @@ void Main::checkStats(double *comm, int n)
     double load = 0.0;
     double maxLoad = 0.0;
 
-    computeCommBytes(globalStatsData, internalBytes, externalBytes);
+    computeCommBytes(globalStatsData, internalBytes, externalBytes, true);
     computeLoad(globalStatsData, load);
 
     if (computedInternal - internalBytes > 1e-6 || computedExternal - externalBytes > 1e-6)
@@ -148,7 +168,7 @@ void Main::checkStats(double *comm, int n)
     statsBefore.external = externalBytes;
     statsBefore.avgload = load / numNodes;
 
-    diffusion_array.reportMaxLoad();
+    diffusion_array.reportMaxLoad(false);
 }
 
 void printStats(statsToPrint &stats)
@@ -247,7 +267,7 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
     }
 }
 
-void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external)
+void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external, bool before)
 {
 
     for (int edge = 0; edge < statsData->commData.size(); edge++)
@@ -263,11 +283,11 @@ void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &exte
             if (fromobj == -1)
                 CkAbort("Fatal Error> Cannot find fromobj which I should own!");
 
-            int fromNode = statsData->from_proc[fromobj];
+            int fromNode = before ? statsData->from_proc[fromobj] : statsData->to_proc[fromobj];
 
             int toNode = -1;
             if (toobj != -1)
-                toNode = statsData->from_proc[toobj];
+                toNode = before ? statsData->from_proc[toobj] : statsData->to_proc[toobj];
 
             // note: neither fromobj nor toobj should be -1 if this is done on global stats
 
@@ -292,9 +312,16 @@ void computeLoad(BaseLB::LDStats *statsData, double &load)
     }
 }
 
-void DiffusionLB::reportMaxLoad()
+void DiffusionLB::reportMaxLoad(bool final)
 {
-    contribute(sizeof(double), &my_load, CkReduction::max_double, CkCallback(CkReductionTarget(Main, collectMaxLoad), mainProxy));
+    if (final)
+    {
+        contribute(sizeof(double), &my_loadAfterTransfer, CkReduction::max_double, CkCallback(CkReductionTarget(Main, collectMaxLoadFinal), mainProxy));
+    }
+    else
+    {
+        contribute(sizeof(double), &my_loadAfterTransfer, CkReduction::max_double, CkCallback(CkReductionTarget(Main, collectMaxLoad), mainProxy));
+    }
 }
 
 DiffusionLB::DiffusionLB()
@@ -307,7 +334,7 @@ DiffusionLB::DiffusionLB()
     double internalBytes = 0.0;
     double externalBytes = 0.0;
     double load = 0.0;
-    computeCommBytes(nodeStats, internalBytes, externalBytes);
+    computeCommBytes(nodeStats, internalBytes, externalBytes, true);
     computeLoad(nodeStats, load);
 
     my_load = load;
@@ -414,8 +441,16 @@ int DiffusionLB::step() {
 
 void DiffusionLB::ProcessMigrations()
 {
-    // done
-    CkExit();
+    double internalBytes = 0.0;
+    double externalBytes = 0.0;
+   computeCommBytes(nodeStats, internalBytes, externalBytes, false);
+
+   CkCallback cs(CkReductionTarget(Main, finalStats), mainProxy);
+    double comm[3];
+    comm[0] = (double)internalBytes;
+    comm[1] = (double)externalBytes;
+    comm[2] = (double)my_loadAfterTransfer;
+    contribute(sizeof(double) * 3, comm, CkReduction::sum_double, cs);
 }
 
 #include "DiffusionSim.def.h"

@@ -37,7 +37,9 @@ public:
     Main(CkArgMsg *m);
     void init();
     void checkStats(double *stats, int n);
+    void finalStats(double *stats, int n);
     void collectMaxLoad(double load);
+    void collectMaxLoadFinal(double load);
 
     void done();
 };
@@ -99,14 +101,14 @@ public:
     DiffusionLB_SDAG_CODE
     DiffusionLB();
     ~DiffusionLB();
-    void reportMaxLoad();
+    void reportMaxLoad(bool final);
 
      int LBwriteStatsMsgs(BaseLB::LDStats* statsData);
 
     void ReceiveFinalStats(std::vector<bool> isMigratable, std::vector<int> from_proc,
                          std::vector<int> to_proc, int n_migrateobjs,
                          std::vector<std::vector<LBRealType>> positions,
-                         std::vector<double> load);
+                         std::vector<double> load, std::vector<LDCommData> commData);
 
     // in DiffusionNeighbors.C
     void findNBors(int do_again);
@@ -183,7 +185,7 @@ public:
     int FindObjectHandle(LDObjHandle h);
 };
 
-void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external);
+void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external, bool before);
 void computeLoad(BaseLB::LDStats *statsData, double &load);
 void printStats(statsToPrint &stats);
 

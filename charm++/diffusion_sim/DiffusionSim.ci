@@ -12,7 +12,9 @@ mainmodule DiffusionSim
         entry[reductiontarget] void init();
         entry[reductiontarget] void done();
         entry[reductiontarget] void checkStats(double stats[n], int n);
+        entry[reductiontarget] void finalStats(double stats[n], int n);
         entry[reductiontarget] void collectMaxLoad(double load);
+        entry[reductiontarget] void collectMaxLoadFinal(double load);
     };
 
     nodegroup NodeCache
@@ -23,7 +25,7 @@ mainmodule DiffusionSim
     array[1D] DiffusionLB
     {
         entry DiffusionLB();
-        entry[reductiontarget] void reportMaxLoad();
+        entry[reductiontarget] void reportMaxLoad(bool final);
 
         // in DiffusionNeighbors.C
         entry void findNBors(int do_again);
@@ -41,10 +43,11 @@ mainmodule DiffusionSim
         entry void WithinNodeLB();
         entry void AcrossNodeLB();  
 
-         entry void ReceiveFinalStats(
-        std::vector<bool> isMigratable, std::vector<int> from_proc,
-        std::vector<int> to_proc, int n_migrateobjs,
-        std::vector<std::vector<LBRealType>> positions, std::vector<double> load);
+        entry void ReceiveFinalStats(
+            std::vector<bool> isMigratable, std::vector<int> from_proc,
+            std::vector<int> to_proc, int n_migrateobjs,
+            std::vector<std::vector<LBRealType>> positions, std::vector<double> load,
+            std::vector<LDCommData> commData);
 
         entry void receiveCentroid(int node, std::vector<LBRealType> centroid, int objCount);
         entry void createCentroidList()
