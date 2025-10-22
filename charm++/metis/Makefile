@@ -1,6 +1,6 @@
 -include ../../../common.mk
-OPTS	= -g
-CHARMC	= ../../../../../netlrts-linux-x86_64-smp/bin/charmc $(OPTS)
+OPTS	= -g -I$(CHARM_HOME)/src/libs/ck-libs/metis/libmetis
+CHARMC	= $(CHARM_HOME)/bin/charmc $(OPTS)
 
 OBJS = MetisLB.o
 

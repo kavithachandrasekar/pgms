@@ -44,6 +44,8 @@ public:
 
   int get_obj_idx(int objHandleId);
   int obj_node_map(int objId);
+  int obj_updated_node_map(int obj_id);
+
 
   BaseLB::LDStats *stats;
   std::vector<int>map_obj_id;

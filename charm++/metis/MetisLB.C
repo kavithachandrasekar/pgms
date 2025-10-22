@@ -34,6 +34,8 @@
 #include <algorithm>
 #include <math.h>
 
+#include "../sim_headers/lbdump_jsontools.h"
+
 #define SIZE 100000
 
 // a solution is feasible if num migrations <= user-specified limit
@@ -70,22 +72,20 @@ class Main : public CBase_Main {
     statsDatax->from_proc.reserve(SIZE);
     statsDatax->to_proc.reserve(SIZE);
     statsDatax->commData.reserve(SIZE);
+
+
     PUP::fromDisk pd(f);
     PUP::machineInfo machInfo;
+    pd((char *)&machInfo, sizeof(machInfo));	// machine info
 
-    pd((char *)&machInfo, sizeof(machInfo));  // read machine info
-    PUP::xlater p(machInfo, pd);
+    pd|_lb_args.lbversion();		// write version number
+    pd|stats_msg_count;
 
-    if (_lb_args.lbversion() > 1) {
-      p|_lb_args.lbversion();   // write version number
-      CkPrintf("LB> File version detected: %d\n", _lb_args.lbversion());
-      CmiAssert(_lb_args.lbversion() <= LB_FORMAT_VERSION);
-    }
-    p|stats_msg_count;
+    CmiPrintf("Reading LB Dump file %s ...\n", filename);
 
-    CmiPrintf("readStatsMsgs for %d pes starts ... \n", stats_msg_count);
+    statsDatax->pup(pd);
 
-    statsDatax->pup(p);
+    
     obj_imb(statsDatax);
 
     double pe_load[statsDatax->procs.size()];
@@ -139,27 +139,29 @@ class Main : public CBase_Main {
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       if (!statsData->objData[obj].migratable)
         continue;
-      statsData->from_proc[obj] = metis_obj->map_obid_pe[obj];
+      //statsData->from_proc[obj] = metis_obj->map_obid_pe[obj];
        std::vector<LBRealType> pos = statsData->objData[obj].position;
-      CkPrintf("\nObject-PE %d %d %d %d", (int)pos[0], (int)pos[1], (int)pos[2], statsData->from_proc[obj]);
 
     }
-    const char* filename = "lbdata.dat.out.0";
-    FILE *f = fopen(filename, "w");
-    if (f==NULL) {
-      CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
-    }
-    const PUP::machineInfo &machInfo = PUP::machineInfo::current();
-    PUP::toDisk p(f);
-    p((char *)&machInfo, sizeof(machInfo)); // machine info
 
-    p|_lb_args.lbversion();   // write version number
-    p|stats_msg_count;
-    statsData->pup(p);
+    write_to_json(statsData);
 
-    fclose(f);
+    // const char* filename = "lbdata.dat.out.0";
+    // FILE *f = fopen(filename, "w");
+    // if (f==NULL) {
+    //   CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
+    // }
+    // const PUP::machineInfo &machInfo = PUP::machineInfo::current();
+    // PUP::toDisk p(f);
+    // p((char *)&machInfo, sizeof(machInfo)); // machine info
 
-    CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
+    // p|_lb_args.lbversion();   // write version number
+    // p|stats_msg_count;
+    // statsData->pup(p);
+
+    // fclose(f);
+
+    // CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
     CkPrintf("\nDONE");fflush(stdout);
     CkExit(0);
   }
@@ -172,9 +174,13 @@ void MetisLB::AtSync() {
   work();
 }
 
+int MetisLB::obj_updated_node_map(int obj_id) {
+  return map_obid_pe[obj_id];
+}
+
 void MetisLB::work()
 {
-  computeCommBytes(stats, this, 0);
+  computeCommBytes(stats, this, 1);
   strategyStartTime = CkWallTimer();
   /** ========================== INITIALIZATION ============================= */
   ProcArray* parr = new ProcArray(stats);
@@ -320,7 +326,7 @@ void MetisLB::work()
   ogr->convertDecisions(stats);
   delete parr;
   delete ogr;
-  computeCommBytes(stats, this, 1);
+  computeCommBytes(stats, this, 0);
   CkCallback cb(CkReductionTarget(Main, done), mainProxy);
   contribute(cb);
 }
