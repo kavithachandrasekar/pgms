@@ -1,0 +1,169 @@
+mainmodule DiffusionSim
+{
+    readonly CProxy_Main mainProxy;
+    readonly CProxy_NodeCache nodeCacheProxy;
+    readonly CProxy_DiffusionLB diffusion_array;
+    readonly std::string input_filename;
+    readonly int numNodes;
+
+    mainchare Main
+    {
+        entry Main(CkArgMsg * m);
+        entry[reductiontarget] void init();
+        entry[reductiontarget] void done();
+        entry[reductiontarget] void checkStats(double stats[n], int n);
+        entry[reductiontarget] void finalStats(double stats[n], int n);
+        entry[reductiontarget] void collectMaxLoad(double load);
+        entry[reductiontarget] void collectMaxLoadFinal(double load);
+    };
+
+    nodegroup NodeCache
+    {
+        entry NodeCache();
+    }
+
+    array[1D] DiffusionLB
+    {
+        entry DiffusionLB();
+        entry[reductiontarget] void reportMaxLoad(bool final);
+
+        // in DiffusionNeighbors.C
+        entry void findNBors(int do_again);
+        entry void beginMST();
+        entry void buildMSTinRounds(double best_weight, int best_from, int best_to);
+        entry void next_MSTphase(double newweight, int newparent, int newto);
+        entry void startFirstRound();
+        entry void findNBorsRound();
+        entry[expedited] void proposeNbor(int nborId);
+        entry[expedited] void askNbor(int nborId, int rnd);
+        entry[expedited] void okayNbor(int agree, int nborId);
+        entry void ackNbor(int nbor);
+
+        entry[reductiontarget] void startStrategy();
+        entry void WithinNodeLB();
+        entry void AcrossNodeLB();  
+
+        entry void ReceiveFinalStats(
+            std::vector<bool> isMigratable, std::vector<int> from_proc,
+            std::vector<int> to_proc, int n_migrateobjs,
+            std::vector<std::vector<LBRealType>> positions, std::vector<double> load,
+            std::vector<LDCommData> commData);
+
+        entry void receiveCentroid(int node, std::vector<LBRealType> centroid, int objCount);
+        entry void createCentroidList()
+        {
+            serial
+            {
+                initializeCentroid();
+            }
+
+            for (centReceiveNode = 0; centReceiveNode < numNodes; centReceiveNode++)
+            {
+                when receiveCentroid(int node, std::vector<LBRealType> centroid, int objCount)
+                    serial
+                {
+                    processReceiveCentroid(node, centroid, objCount);
+                }
+            }
+
+            serial "Sorting nbors"
+            {
+                finishCentroidList();
+            }
+        }
+
+        entry void ReceiveLoadInfo(int itr, double load, int node);
+        entry void PseudoLoad(int itr, double load, int node);
+        entry[reductiontarget] void pseudoDone(bool done);
+        entry void pseudolb_barrier(int allZero);
+        entry void LoadMetaInfo(LDObjHandle h, int objId, double load, int senderPE, int only_mcount);
+    entry void LoadReceived(int objId, int fromPE);
+  entry void ProcessMigrations();
+    entry void ProcessFinalStats();
+
+
+        entry void pseudolb_rounds()
+        {
+            serial
+            {
+                std::string neighborsStr;
+                for (int i = 0; i < neighborCount; i++)
+                {
+                neighborsStr += std::to_string(sendToNeighbors[i]);
+                if (i < neighborCount - 1)
+                {
+                    neighborsStr += ", ";
+                }
+                }
+
+                if (_lb_args.debug()) CkPrintf("Node %d has neighbors: %s\n", myNodeId, neighborsStr.c_str());
+
+                loadNeighbors.clear();
+                toSendLoad.clear();
+
+                loadNeighbors.resize(neighborCount, 0);
+                toSendLoad.resize(neighborCount, 0);
+                toReceiveLoad.resize(neighborCount, 0);
+
+                my_pseudo_load = my_load;
+            }
+
+            // TODO: Currently fixed iterations
+            for (pseudo_itr = 0; pseudo_itr < ITERATIONS; pseudo_itr++)
+            {
+                // Send its load
+                serial "Communicate load info"
+                {
+                for (int i = 0; i < neighborCount; i++)
+                {
+                    thisProxy[sendToNeighbors[i] * nodeSize].ReceiveLoadInfo(
+                        pseudo_itr, my_pseudo_load, myNodeId);
+                }
+                }
+
+                // Wait for all its neighbors load
+                for (temp_itr = 0; temp_itr < sendToNeighbors.size(); temp_itr++)
+                {
+                when ReceiveLoadInfo[pseudo_itr](int itr, double load, int node) serial
+                {
+                    int pos = findNborIdx(node);
+                    loadNeighbors[pos] = load;
+                }
+                }
+
+                // Calculate average and do pseudo load balancing
+                serial "Pseudo LB"
+                {
+                // avgLoadNeighbor = avgNborLoad();
+                PseudoLoadBalancing();
+                }
+
+                for (temp_itr = 0; temp_itr < sendToNeighbors.size(); temp_itr++)
+                {
+                when PseudoLoad[pseudo_itr](int itr, double load, int node) serial
+                {
+                    my_pseudo_load += load;
+                    int pos = findNborIdx(node);
+                    toSendLoad[pos] -= load;
+                }
+                }
+
+                when pseudoDone(bool doneInPseudo) serial
+                {
+                if (doneInPseudo)
+                {
+                    pseudo_itr = ITERATIONS;
+                }
+                }
+            }
+
+        // Calculate the aggregate load that has to be sent.
+            serial "Aggregate load"
+            {
+                if (_lb_args.debug()) CkPrintf("PSEUDO: Node %d (load %f) with pseudo_load after LB %f\n", myNodeId,
+                        my_load, my_pseudo_load);
+                loadReceivers = 0;
+            }
+        }
+    }
+}

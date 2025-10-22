@@ -1,0 +1,88 @@
+#include "json.hpp"
+#include <fstream>
+#include <iostream>
+
+#include "BaseLB.h"
+
+using json = nlohmann::json;
+
+// write lbstats to a json file
+int DiffusionLB::LBwriteStatsMsgs(BaseLB::LDStats* statsData)
+{
+  json jsonData;
+
+  jsonData["n_migratable"] = statsData->n_migrateobjs;
+
+  // processor stats: n_objs, pe_speed, total_walltime, idletime, bg_walltime, pe,
+  // available
+
+  json objpe = json::object();
+
+  for (int obj = 0; obj < statsData->objData.size(); obj++)
+  {
+    int from = statsData->from_proc[obj];
+    int to = statsData->to_proc[obj];
+
+    if (from >= numPes || from < 0)
+    {
+      CkAbort("<LBwriteStatsMsgs> from_proc is out of bounds (%d not in [0,%d))", from, numPes);
+    }
+
+    if (to >= numPes || to < -1)
+    {
+      CkAbort("<LBwriteStatsMsgs> to_proc is out of bounds (%d not in [0,%d))", to, numPes);
+    }
+
+    if (to != -1 && (statsData->objData[obj].migratable == false))
+    {
+      CkAbort("<LBwriteStatsMsgs> object should not be migrating");
+    }
+
+    LDObjData odata = statsData->objData[obj];
+    objpe[std::to_string(obj)] = {{"migratable", odata.migratable},
+                                  {"position", odata.position},
+                                  {"wallTime", odata.wallTime},
+                                  {"oldpe", from},
+                                  {"newpe", (to == -1) ? from : to},
+                                  {"omHandle", odata.omID().id.idx},
+                                  {"id", odata.objID()}};
+
+    // from_proc: old pe for object
+    // to_proc: pe object is migrating to NOT USING
+  }
+
+  jsonData["n_procs"] = statsData->procs.size();
+  jsonData["n_nodes"] = CkNumNodes();
+  jsonData["objData"] = objpe; // objdata: objID, omID, migratable, position, cpuTime, wallTime
+
+
+  json commdata = json::object();
+  for (int comm = 0; comm < statsData->commData.size(); comm++)
+  {
+    LDCommData cdata = statsData->commData[comm];
+    commdata[std::to_string(comm)] = {
+        {"src_proc", cdata.src_proc},
+        {"sender_obj", {{"omID", cdata.sender.omID().id.idx}, // sender is a LDObjKey, with two fields only
+                        {"objID", cdata.sender.objID()}}},
+        {"receiver_obj", {{"omID", cdata.receiver.get_destObj().omID().id.idx}, // receiver is LDCommDesc, need to support get_dest_obj and also lastKnown
+                          {"objID", cdata.receiver.get_destObj().objID()},
+                          {"type", cdata.receiver.type}}}, // and also getType()
+        {"msg_size", cdata.bytes}};
+  }
+  jsonData["commData"] = commdata; // commData: list of (src_proc, sender, receiver, recv_type, msg_size, msg_count)
+
+  std::ofstream outputFile("lbdump.json");
+  if (outputFile.is_open())
+  {
+    outputFile << jsonData.dump(4) << std::endl;
+    outputFile.close();
+    std::cout << "JSON data successfully written to lbdump.json" << std::endl;
+  }
+  else
+  {
+    std::cerr << "Unable to open file for writing!" << std::endl;
+    return 1;
+  }
+
+  return 0;
+}

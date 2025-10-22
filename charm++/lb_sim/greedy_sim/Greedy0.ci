@@ -1,0 +1,25 @@
+#define STANDALONE_DIFF
+#ifdef STANDALONE_DIFF
+mainmodule Greedy0 {
+#else
+module Greedy0 {
+#endif
+
+#ifdef STANDALONE_DIFF
+  readonly CProxy_Main mainProxy;
+  readonly CProxy_Greedy0 greedy_array;
+
+  mainchare Main {
+    entry Main(CkArgMsg *m);
+    entry [reductiontarget] void init();
+    entry [reductiontarget] void done();
+  };
+#endif
+
+  array [1D] Greedy0 {
+    entry Greedy0();
+    entry [reductiontarget] void work();
+    entry void AtSync(void);
+  };
+};
+
