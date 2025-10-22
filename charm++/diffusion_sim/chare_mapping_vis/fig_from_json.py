@@ -120,11 +120,32 @@ def plot(json_file, mode = 'pe', highlight = None, three_d=True):
   print("Number of objects:", len(data_old_pe))
   print("Number of migrations:", sum(1 for old_pe, new_pe in zip(data_old_pe, data_new_pe) if old_pe != new_pe))
   
-
+  # compute load per pe
+  num_pes = max(data_old_pe) + 1
+  load_old = [0] * num_pes
+  load_new = [0] * num_pes
+  
+  for obj in objects:
+    load_old[objects[obj]['oldpe']] += objects[obj]['wallTime']
+    load_new[objects[obj]['newpe']] += objects[obj]['wallTime']
+    
+  print("before LB: max load =", max(load_old), "avg load =", sum(load_old)/num_pes)
+  print("after  LB: max load =", max(load_new), "avg load =", sum(load_new)/num_pes)
+  
+  
 # %%
 plot("/Users/maya/software/charm-diffusionlb/examples/charm++/load_balancing/stencil3d/lbdump.json", 'pe', highlight=None)
 
 # %%
+plot("/Users/maya/ppl/pgms/charm++/diffusion_sim/centrallb.json", 'pe', highlight=None)
+
+# %%
+plot("/Users/maya/ppl/pgms/charm++/greedy_refine_sim/lbdump.json", 'pe', highlight=None)
+
+# %%
 plot("/Users/maya/ppl/pgms/charm++/diffusion_sim/lbdump.json", 'pe', highlight=None)
+
+# %%
+plot("/Users/maya/ppl/pgms/charm++/metis/lbdump.json", 'pe', highlight=None)
 
 # %%
