@@ -18,6 +18,8 @@ struct statsToPrint
     double external;
     double avgload;
     double maxload;
+
+    double numMigrations;
 };
 
 class Main : public CBase_Main
@@ -32,6 +34,9 @@ private:
 
     statsToPrint statsBefore;
     statsToPrint statsAfter;
+
+    int max_iter;
+    int curr_iter;
 
 public:
     Main(CkArgMsg *m);
@@ -62,6 +67,8 @@ private:
 
     double my_load;
     double my_loadAfterTransfer;
+
+    double num_migrations;
 
     std::vector<CkVertex> objs;
     
@@ -103,7 +110,8 @@ public:
     ~DiffusionLB();
     void reportMaxLoad(bool final);
 
-     int LBwriteStatsMsgs(BaseLB::LDStats* statsData);
+     int writeStatsMsgs(BaseLB::LDStats* statsData);
+     int writeStatsMsgsJSON(BaseLB::LDStats* statsData);
 
     void ReceiveFinalStats(std::vector<bool> isMigratable, std::vector<int> from_proc,
                          std::vector<int> to_proc, int n_migrateobjs,

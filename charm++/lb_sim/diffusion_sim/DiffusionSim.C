@@ -70,13 +70,17 @@ void readInputStats(const char *input_filename, BaseLB::LDStats *statsData, int 
 
     if (!isJson) {
         // this only works if file was pupped via CentralLB
-        PUP::fromDisk pd(f);
-        PUP::machineInfo machInfo;
-        pd((char *)&machInfo, sizeof(machInfo));	// machine info
 
-        pd|_lb_args.lbversion();		// write version number
-        pd|stats_msg_count;
-        statsData->pup(pd);
+        const PUP::machineInfo &machInfo = PUP::machineInfo::current();
+
+        PUP::fromDisk p(f);
+       p((char *)&machInfo, sizeof(machInfo));	// machine info
+
+  p|_lb_args.lbversion();		// write version number
+  p|stats_msg_count;
+
+  statsData->n_nodes = CkNumNodes();
+  statsData->pup(p);
     }
     else
     {
@@ -84,16 +88,14 @@ void readInputStats(const char *input_filename, BaseLB::LDStats *statsData, int 
             CkAbort("Simulator doesn't work with JSON and comm yet. Use centroid, or generate initial data some other way.\n");
         read_from_json(f, statsData);
     }
-
-    statsData->makeCommHash(); // set up the ldstats objHash, which maps LDObjKey to index in objData
 }
 
 Main::Main(CkArgMsg *m)
 {
     mainProxy = thisProxy;
-    if (m->argc != 4)
+    if (m->argc < 4 || m->argc > 5)
     {
-        CkPrintf("Usage: ./Diffusion <load_imb_fn: 1,2,3,4>, <input_filename>, <output_filename>\n");
+        CkPrintf("Usage: ./Diffusion <load_imb_fn: 1,2,3,4>, <input_filename>, <output_filename> <optional: number of lb iters>\n");
         CkExit();
     }
 
@@ -105,12 +107,26 @@ Main::Main(CkArgMsg *m)
     output_filename = m->argv[4];
 
     globalStatsData = new BaseLB::LDStats();
+    printf("Reading input stats in main\n");
     readInputStats(input_filename.c_str(), globalStatsData, stats_msg_count);
+
+    printf("size of comm data: %lu\n", globalStatsData->commData.size());
+    globalStatsData->deleteCommHash();
+    globalStatsData->makeCommHash();
     numNodes = globalStatsData->n_nodes;
 
+   
     CkPrintf("Global stats from %s parsed by Main: %d nodes and %d migratable objects \n", input_filename.c_str(), numNodes, globalStatsData->n_migrateobjs);
 
     nodeCacheProxy = CProxy_NodeCache::ckNew();
+
+    curr_iter = 0;
+    max_iter = 1;
+
+    if (m->argc > 4) {
+        max_iter = atoi(m->argv[4]);
+    }
+
 }
 
 void Main::init()
@@ -128,7 +144,7 @@ void Main::collectMaxLoadFinal(double load)
 {
     statsAfter.maxload = load;
     printStats(statsAfter);
-    CkExit();
+    done();
 }
 
 void Main::finalStats(double *comm, int n) {
@@ -136,9 +152,12 @@ void Main::finalStats(double *comm, int n) {
     double externalBytes = comm[1];
     double loadSum = comm[2];
 
+    double numMigrations = comm[3];
+
     statsAfter.internal = internalBytes;
     statsAfter.external = externalBytes;
     statsAfter.avgload = loadSum / numNodes;
+    statsAfter.numMigrations = numMigrations; 
 
     diffusion_array.reportMaxLoad(true);
 }
@@ -155,6 +174,7 @@ void Main::checkStats(double *comm, int n)
     double load = 0.0;
     double maxLoad = 0.0;
 
+    CkPrintf("Calling from main check stats\n");
     computeCommBytes(globalStatsData, internalBytes, externalBytes, true);
     computeLoad(globalStatsData, load);
 
@@ -173,21 +193,34 @@ void Main::checkStats(double *comm, int n)
 
 void printStats(statsToPrint &stats)
 {
-    CkPrintf("- Internal comm %f MB, External comm %f MB\n", stats.internal / (1024 * 1024), stats.external / (1024 * 1024));
-    CkPrintf("- Average load %f\n", stats.avgload);
-    CkPrintf("- Max load %f\n", stats.maxload);
+    // BUG WITH AVERAGE LOAD... but the sim viewer computes it correctly
+    CkPrintf("- Internal comm %f MB, External comm %f MB:\n", stats.internal / (1024 * 1024), stats.external / (1024 * 1024));
+    CkPrintf("- Average load: %f\n", stats.avgload);
+    CkPrintf("- Max load: %f\n", stats.maxload);
+    CkPrintf("- Number of migrations: %d\n", int(stats.numMigrations));
 }
 
 void Main::done()
 {
-    CkExit();
+    curr_iter++;
+
+    if (curr_iter == max_iter) 
+        CkExit();
+    else
+        diffusion_array.findNBors(0);
 }
 
 NodeCache::NodeCache()
 {
     globalStatsData = new BaseLB::LDStats();
     int stats_msg_count = 0;
+    printf("Reading input stats in NodeCache%d\n", thisIndex);
     readInputStats(input_filename.c_str(), globalStatsData, stats_msg_count);
+
+    printf("size of comm data: %lu\n", globalStatsData->commData.size());
+    globalStatsData->deleteCommHash();
+    globalStatsData->makeCommHash();
+    numNodes = globalStatsData->n_nodes;
 
     CkPrintf("Global stats from %s parsed by NodeCache%d: %d nodes and %d migratable objects \n", input_filename.c_str(), thisIndex, numNodes, globalStatsData->n_migrateobjs);
     contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
@@ -214,6 +247,7 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
 
     // get relevant object stats
     int nmigratable = 0;
+    CkPrintf("Setting up local stats for DiffusionLB on PE %d\n", thisIndex);
     for (int obj = 0; obj < globalStats->objData.size(); obj++)
     {
         LDObjData &oData = globalStats->objData[obj];
@@ -244,6 +278,7 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
     }
 
     // get relevant comm stats
+
     for (int comm = 0; comm < globalStats->commData.size(); comm++)
     {
         LDCommData &commData = globalStats->commData[comm];
@@ -251,13 +286,14 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
         {
             LDObjKey from = commData.sender;
             LDObjKey to = commData.receiver.get_destObj();
-            int fromobj = statsData->getHash(from); // this replaces the simulator get_obj_idx
-            int toobj = statsData->getHash(to);
+            int fromobj = globalStats->getHash(from); // this replaces the simulator get_obj_idx
+            int toobj = globalStats->getHash(to);
+
 
             if (fromobj == -1)
                 continue;
 
-            int fromnode = statsData->from_proc[fromobj];
+            int fromnode = globalStats->from_proc[fromobj];
 
             if (fromnode != thisIndex)
                 continue;
@@ -265,6 +301,8 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
             nodeStats->commData.push_back(commData);
         }
     }
+
+    CkPrintf("Local stats set up with %d objects and %d comm edges on PE %d\n", nodeStats->objData.size(), nodeStats->commData.size(), thisIndex);
 }
 
 void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external, bool before)
@@ -281,7 +319,7 @@ void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &exte
             int toobj = statsData->getHash(to);
 
             if (fromobj == -1)
-                CkAbort("Fatal Error> Cannot find fromobj which I should own!");
+                CkAbort("Fatal Error> Cannot find fromobj which I should own! Doing edge %d\n", edge);
 
             int fromNode = before ? statsData->from_proc[fromobj] : statsData->to_proc[fromobj];
 
@@ -334,12 +372,14 @@ DiffusionLB::DiffusionLB()
     double internalBytes = 0.0;
     double externalBytes = 0.0;
     double load = 0.0;
+    CkPrintf("Calling from DiffusionLB constructor on PE %d\n", thisIndex);
     computeCommBytes(nodeStats, internalBytes, externalBytes, true);
     computeLoad(nodeStats, load);
 
     my_load = load;
     my_loadAfterTransfer = my_load;
 
+    num_migrations = 0.0;
 
     // setup for DiffusionNeighbors.C
     round = 0;
@@ -357,7 +397,6 @@ DiffusionLB::DiffusionLB()
     total_migrates = 0;
 
     numPes = numNodes;
-    CkPrintf("DiffusionLB on PE %d: numPes = %d\n", thisIndex, numPes);
 
     if (myNodeId == 0)
     {
@@ -446,11 +485,12 @@ void DiffusionLB::ProcessMigrations()
    computeCommBytes(nodeStats, internalBytes, externalBytes, false);
 
    CkCallback cs(CkReductionTarget(Main, finalStats), mainProxy);
-    double comm[3];
+    double comm[4];
     comm[0] = (double)internalBytes;
     comm[1] = (double)externalBytes;
     comm[2] = (double)my_loadAfterTransfer;
-    contribute(sizeof(double) * 3, comm, CkReduction::sum_double, cs);
+    comm[3] = (double)num_migrations;
+    contribute(sizeof(double) * 4, comm, CkReduction::sum_double, cs);
 }
 
 #include "DiffusionSim.def.h"

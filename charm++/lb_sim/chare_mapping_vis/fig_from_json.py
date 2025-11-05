@@ -98,8 +98,8 @@ def plot(json_file, mode = 'pe', highlight = None, three_d=True):
     data_old_pe.append(objects[obj]['oldpe'])
     data_new_pe.append(objects[obj]['newpe'])
     positions.append((objects[obj]['position'][0], objects[obj]['position'][1], objects[obj]['position'][2]))
-    old_nodes.append(floor(objects[obj]['oldpe'] / num_nodes))
-    new_nodes.append(floor(objects[obj]['newpe'] / num_nodes))
+    old_nodes.append(floor(objects[obj]['oldpe'] / (num_nodes  - 1)))
+    new_nodes.append(floor(objects[obj]['newpe'] / (num_nodes  - 1)))
     
   if highlight is None:
     highlight = list(range(max(data_old_pe) + 1))
@@ -118,6 +118,8 @@ def plot(json_file, mode = 'pe', highlight = None, three_d=True):
     plot_pes(data_old_pe, data_new_pe, positions, mode, highlight, three_d)
     
   print("Number of objects:", len(data_old_pe))
+  print("Number of PEs:", max(data_old_pe) + 1)
+  print("Number of nodes:", num_nodes)
   print("Number of migrations:", sum(1 for old_pe, new_pe in zip(data_old_pe, data_new_pe) if old_pe != new_pe))
   
   # compute load per pe
@@ -142,5 +144,8 @@ plot("/Users/maya/ppl/pgms/charm++/lb_sim/diffusion_sim/lbdump.json", 'pe', high
 
 # %%
 plot("/Users/maya/ppl/pgms/charm++/lb_sim/metis/lbdump.json", 'pe', highlight=None)
+
+# %%
+plot("/Users/maya/software/charm-diffusionlb/examples/charm++/load_balancing/stencil3d/lbdump.json", 'node', highlight=None)
 
 # %%
