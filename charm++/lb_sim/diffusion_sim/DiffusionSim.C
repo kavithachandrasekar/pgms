@@ -99,6 +99,12 @@ Main::Main(CkArgMsg *m)
         CkExit();
     }
 
+    if (CkNumNodes() > 1)
+    {
+        CkPrintf("DiffusionLB simulator currently only works on one node.\n");
+        CkExit();
+    }
+
     // Selecting load imbalance function
     int fn_type = atoi(m->argv[1]);
     obj_imb = getImbalanceFunction(fn_type);
@@ -132,16 +138,20 @@ Main::Main(CkArgMsg *m)
 void Main::init()
 {
     diffusion_array = CProxy_DiffusionLB::ckNew(numNodes);
+    diffusion_array.startRound();
 }
 
 void Main::collectMaxLoad(double load)
 {
     statsBefore.maxload = load;
+    CkPrintf("----------- INITIAL STATS -----------\n");
     printStats(statsBefore);
 }
 
 void Main::collectMaxLoadFinal(double load)
 {
+    CkPrintf("----------- LB STEP %d -----------\n", curr_iter);
+
     statsAfter.maxload = load;
     printStats(statsAfter);
     done();
@@ -174,9 +184,8 @@ void Main::checkStats(double *comm, int n)
     double load = 0.0;
     double maxLoad = 0.0;
 
-    CkPrintf("Calling from main check stats\n");
     computeCommBytes(globalStatsData, internalBytes, externalBytes, true);
-    computeLoad(globalStatsData, load);
+    computeLoad(globalStatsData, load, true, -1);
 
     if (computedInternal - internalBytes > 1e-6 || computedExternal - externalBytes > 1e-6)
         CkAbort("Fatal Error> Global and locally computed bytes don't match: %f %f!\n", computedInternal, internalBytes);
@@ -207,23 +216,22 @@ void Main::done()
     if (curr_iter == max_iter) 
         CkExit();
     else
-        diffusion_array.findNBors(0);
+        diffusion_array.startRound();
 }
 
 NodeCache::NodeCache()
 {
     globalStatsData = new BaseLB::LDStats();
     int stats_msg_count = 0;
-    printf("Reading input stats in NodeCache%d\n", thisIndex);
     readInputStats(input_filename.c_str(), globalStatsData, stats_msg_count);
 
-    printf("size of comm data: %lu\n", globalStatsData->commData.size());
     globalStatsData->deleteCommHash();
     globalStatsData->makeCommHash();
     numNodes = globalStatsData->n_nodes;
 
-    CkPrintf("Global stats from %s parsed by NodeCache%d: %d nodes and %d migratable objects \n", input_filename.c_str(), thisIndex, numNodes, globalStatsData->n_migrateobjs);
     contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
+
+    nReceived = 0;
 }
 
 DiffusionLB::~DiffusionLB()
@@ -234,7 +242,7 @@ DiffusionLB::~DiffusionLB()
 #endif
 }
 
-void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
+void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData, bool before)
 {
 
     BaseLB::LDStats *globalStats = myNodeCache->globalStatsData;
@@ -247,11 +255,14 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
 
     // get relevant object stats
     int nmigratable = 0;
-    CkPrintf("Setting up local stats for DiffusionLB on PE %d\n", thisIndex);
+    double my_load = 0.0;
     for (int obj = 0; obj < globalStats->objData.size(); obj++)
     {
         LDObjData &oData = globalStats->objData[obj];
-        int pe = globalStats->from_proc[obj];
+        int pe = before ? globalStats->from_proc[obj] : globalStats->to_proc[obj];
+
+        assert(pe >= 0);
+        assert(pe < numNodes);
 
         if (pe == thisIndex)
         {
@@ -260,11 +271,15 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
             nodeStats->from_proc.push_back(pe);
             nodeStats->to_proc.push_back(pe);
 
+            my_load += oData.wallTime;
+
             if (oData.migratable)
                 nmigratable++;
         }
     }
     nodeStats->n_migrateobjs = nmigratable;
+
+    nodeStats->deleteCommHash();
     nodeStats->makeCommHash(); // set up the ldstats objHash, which maps LDObjKey to index in objData
 
     objs.clear();
@@ -274,7 +289,7 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
     {
         LDObjData& oData = nodeStats->objData[nobj];
         objs[nobj] = CkVertex(nobj, oData.wallTime, nodeStats->objData[nobj].migratable,
-                              nodeStats->from_proc[nobj]);
+                              before ? nodeStats->from_proc[nobj] : nodeStats->to_proc[nobj]);
     }
 
     // get relevant comm stats
@@ -293,7 +308,7 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
             if (fromobj == -1)
                 continue;
 
-            int fromnode = globalStats->from_proc[fromobj];
+            int fromnode = before ? globalStats->from_proc[fromobj] : globalStats->to_proc[fromobj];
 
             if (fromnode != thisIndex)
                 continue;
@@ -301,8 +316,6 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData)
             nodeStats->commData.push_back(commData);
         }
     }
-
-    CkPrintf("Local stats set up with %d objects and %d comm edges on PE %d\n", nodeStats->objData.size(), nodeStats->commData.size(), thisIndex);
 }
 
 void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external, bool before)
@@ -321,11 +334,11 @@ void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &exte
             if (fromobj == -1)
                 CkAbort("Fatal Error> Cannot find fromobj which I should own! Doing edge %d\n", edge);
 
-            int fromNode = before ? statsData->from_proc[fromobj] : statsData->to_proc[fromobj];
+            int fromNode = statsData->from_proc[fromobj] ;
 
             int toNode = -1;
             if (toobj != -1)
-                toNode = before ? statsData->from_proc[toobj] : statsData->to_proc[toobj];
+                toNode = statsData->to_proc[toobj];
 
             // note: neither fromobj nor toobj should be -1 if this is done on global stats
 
@@ -338,12 +351,18 @@ void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &exte
     }
 }
 
-void computeLoad(BaseLB::LDStats *statsData, double &load)
+void computeLoad(BaseLB::LDStats *statsData, double &load, bool before, int thispe)
 {
+    load = 0;
     for (int obj = 0; obj < statsData->objData.size(); obj++)
     {
         LDObjData &oData = statsData->objData[obj];
-        int pe = statsData->from_proc[obj];
+        int pe = before ? statsData->from_proc[obj] : statsData->to_proc[obj];
+
+    if (thispe != -1 && pe != thispe) {
+            CkPrintf("Fatal Error> computeLoad called on PE %d but object %d is on PE %d\n", thispe, obj, pe);
+CkExit();
+        }
 
         // this is the local object
         load += oData.wallTime;
@@ -366,15 +385,20 @@ DiffusionLB::DiffusionLB()
 {
     myNodeCache = nodeCacheProxy.ckLocalBranch();
     nodeStats = new BaseLB::LDStats();
+    iter = 0;
 
-    setupLocalStats(nodeStats);
+    setupLocalStats(nodeStats, true);
+}
+
+void DiffusionLB::startRound() {
+
+    
 
     double internalBytes = 0.0;
     double externalBytes = 0.0;
     double load = 0.0;
-    CkPrintf("Calling from DiffusionLB constructor on PE %d\n", thisIndex);
     computeCommBytes(nodeStats, internalBytes, externalBytes, true);
-    computeLoad(nodeStats, load);
+    computeLoad(nodeStats, load, true, thisIndex);
 
     my_load = load;
     my_loadAfterTransfer = my_load;
@@ -406,12 +430,14 @@ DiffusionLB::DiffusionLB()
      
      pe_load.resize(nodeSize);
 
-    CkCallback cs(CkReductionTarget(Main, checkStats), mainProxy);
-    double comm[3];
-    comm[0] = (double)internalBytes;
-    comm[1] = (double)externalBytes;
-    comm[2] = (double)load;
-    contribute(sizeof(double) * 3, comm, CkReduction::sum_double, cs);
+    if (iter == 0) {
+        CkCallback cs(CkReductionTarget(Main, checkStats), mainProxy);
+        double comm[3];
+        comm[0] = (double)internalBytes;
+        comm[1] = (double)externalBytes;
+        comm[2] = (double)load;
+        contribute(sizeof(double) * 3, comm, CkReduction::sum_double, cs);
+    }
 
     // stats collection can happen concurrently with LB
     thisProxy[thisIndex].findNBors(0);
@@ -469,20 +495,85 @@ int DiffusionLB::GetPENumber(int& obj_id)
     return 0;
 }
 
-void DiffusionLB::LoadReceived(int objId, int from0PE)
+void DiffusionLB::LoadReceived(int objId, int destpe)
 {
-    total_migrates++;
 }
 
 int DiffusionLB::step() {
-    return LBSimulation::dumpStep;
+    return iter;
+}
+
+
+void NodeCache::updateGlobalStatsData(BaseLB::LDStats *nodeStats, int thisIndex) {
+    
+    nReceived++;
+
+    if (nReceived == 1) {
+        globalStatsData->commData.clear();
+        globalStatsData->objData.clear();
+        globalStatsData->from_proc.clear();
+        globalStatsData->to_proc.clear();
+        globalStatsData->objData.clear();
+        
+        globalStatsData->n_migrateobjs = 0;
+    }
+
+    // update globalStatsData with nodeStats from thisIndex
+    globalStatsData->commData.insert(globalStatsData->commData.end(),
+                                     nodeStats->commData.begin(),
+                                     nodeStats->commData.end());
+    globalStatsData->objData.insert(globalStatsData->objData.end(),
+                                    nodeStats->objData.begin(),
+                                    nodeStats->objData.end());
+    globalStatsData->from_proc.insert(globalStatsData->from_proc.end(),
+                                     nodeStats->from_proc.begin(),
+                                     nodeStats->from_proc.end());
+    globalStatsData->to_proc.insert(globalStatsData->to_proc.end(),
+                                   nodeStats->to_proc.begin(),
+                                   nodeStats->to_proc.end());   
+    globalStatsData->n_migrateobjs += nodeStats->n_migrateobjs;
+
+
+    globalStatsData->deleteCommHash();
+    globalStatsData->makeCommHash();
+
+
+
+    if (nReceived == numNodes) {
+        double load = 0.0;
+        for (int i = 0; i < globalStatsData->objData.size(); i++) {
+            load += globalStatsData->objData[i].wallTime;
+            if (globalStatsData->from_proc[i] < 0 || globalStatsData->from_proc[i] >= numNodes) {
+                CkPrintf("Fatal Error> from_proc %d out of range on obj %d\n", globalStatsData->from_proc[i], i);
+                CkAbort("Aborting\n");
+
+            }
+            if (globalStatsData->to_proc[i] < 0 || globalStatsData->to_proc[i] >= numNodes) {
+                globalStatsData->to_proc[i] = globalStatsData->from_proc[i];
+            }
+        }
+
+        nReceived = 0;
+        diffusion_array.RebuildStats();
+    }
 }
 
 void DiffusionLB::ProcessMigrations()
 {
+    iter++;
+
+    myNodeCache->updateGlobalStatsData(nodeStats, thisIndex);
+
+}
+
+void DiffusionLB::RebuildStats() {
+    
+    setupLocalStats(nodeStats, false);
+
     double internalBytes = 0.0;
     double externalBytes = 0.0;
    computeCommBytes(nodeStats, internalBytes, externalBytes, false);
+   computeLoad(nodeStats, my_loadAfterTransfer, false, thisIndex);
 
    CkCallback cs(CkReductionTarget(Main, finalStats), mainProxy);
     double comm[4];
@@ -491,6 +582,9 @@ void DiffusionLB::ProcessMigrations()
     comm[2] = (double)my_loadAfterTransfer;
     comm[3] = (double)num_migrations;
     contribute(sizeof(double) * 4, comm, CkReduction::sum_double, cs);
+
+    my_load = my_loadAfterTransfer;
+
 }
 
 #include "DiffusionSim.def.h"

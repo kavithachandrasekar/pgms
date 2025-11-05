@@ -28,5 +28,5 @@ DiffusionSim.o: DiffusionSim.C DiffusionSim.decl.h DiffusionSim.def.h DiffusionS
 	cp $< .
 
 clean:
-	rm -f *.decl.h *.def.h conv-host *.o DiffusionSim DiffusionSim.prj charmrun *~ *.stamp $(COPIED_FILES)
+	rm -f *.decl.h *.def.h conv-host *.o DiffusionSim DiffusionSim.prj charmrun *~ *.stamp $(COPIED_FILES) $(COPIED_HEADER)
 

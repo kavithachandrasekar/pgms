@@ -54,6 +54,9 @@ class NodeCache : public CBase_NodeCache
 public:
     BaseLB::LDStats *globalStatsData;
     NodeCache();
+
+    void updateGlobalStatsData(BaseLB::LDStats *nodeStats, int thisIndex);
+    int nReceived;
 };
 
 class DiffusionLB : public CBase_DiffusionLB
@@ -67,13 +70,13 @@ private:
 
     double my_load;
     double my_loadAfterTransfer;
+    double received_load;
 
     double num_migrations;
 
     std::vector<CkVertex> objs;
     
-
-    void setupLocalStats(BaseLB::LDStats *statsData);
+    void setupLocalStats(BaseLB::LDStats *statsData, bool before);
 
     // for DiffusionNeighbors.C
     int round, requests_sent, pick;
@@ -92,6 +95,8 @@ private:
     int *node_idx; // nbors;
     int nodeSize;
     int neighborCount;
+
+    int iter;
     std::vector<std::vector<LBRealType>> allNodeCentroids;
     std::vector<int> allNodeObjCount;
     std::vector<double> allNodeDistances;
@@ -107,7 +112,11 @@ private:
 public:
     DiffusionLB_SDAG_CODE
     DiffusionLB();
+
     ~DiffusionLB();
+    void startRound();
+        void RebuildStats();
+
     void reportMaxLoad(bool final);
 
      int writeStatsMsgs(BaseLB::LDStats* statsData);
@@ -194,7 +203,7 @@ public:
 };
 
 void computeCommBytes(BaseLB::LDStats *statsData, double &internal, double &external, bool before);
-void computeLoad(BaseLB::LDStats *statsData, double &load);
+void computeLoad(BaseLB::LDStats *statsData, double &load, bool before, int thispe);
 void printStats(statsToPrint &stats);
 
 

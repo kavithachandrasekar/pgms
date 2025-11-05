@@ -25,7 +25,12 @@ mainmodule DiffusionSim
     array[1D] DiffusionLB
     {
         entry DiffusionLB();
+        entry void startRound();
         entry[reductiontarget] void reportMaxLoad(bool final);
+
+        entry void RebuildStats();
+
+    
 
         // in DiffusionNeighbors.C
         entry void findNBors(int do_again);
