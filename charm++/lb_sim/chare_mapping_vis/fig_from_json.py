@@ -94,12 +94,19 @@ def plot(json_file, mode = 'pe', highlight = None, three_d=True):
   new_nodes = []
   num_nodes = data['n_nodes']
   
+  print("Number of objects:", len(objects))
+  print("Number of nodes:", num_nodes)
+  
   for obj in objects:
     data_old_pe.append(objects[obj]['oldpe'])
     data_new_pe.append(objects[obj]['newpe'])
     positions.append((objects[obj]['position'][0], objects[obj]['position'][1], objects[obj]['position'][2]))
-    old_nodes.append(floor(objects[obj]['oldpe'] / (num_nodes  - 1)))
-    new_nodes.append(floor(objects[obj]['newpe'] / (num_nodes  - 1)))
+    if (num_nodes == 1):
+      old_nodes.append(0)
+      new_nodes.append(0)
+    else:
+      old_nodes.append(floor(objects[obj]['oldpe'] / (num_nodes  - 1)))
+      new_nodes.append(floor(objects[obj]['newpe'] / (num_nodes  - 1)))
     
   if highlight is None:
     highlight = list(range(max(data_old_pe) + 1))
