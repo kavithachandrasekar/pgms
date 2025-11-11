@@ -49,9 +49,14 @@ static obj_imb_funcptr obj_imb;
 class Main : public CBase_Main {
   BaseLB::LDStats *statsData;
   int stats_msg_count;
+  int curr_iter;
+  int max_iter;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
+    curr_iter = 0;
+    max_iter = 1;  // default to 1 iteration
+    
     if(m->argc > 1) {
       int fn_type =  atoi(m->argv[1]);
       if(fn_type == 1)
@@ -59,6 +64,13 @@ class Main : public CBase_Main {
       else if(fn_type == 2)
         obj_imb = (obj_imb_funcptr) load_imb_by_history;
     }
+    
+    // Check for max iterations argument
+    if(m->argc > 2) {
+      max_iter = atoi(m->argv[2]);
+      CkPrintf("Running %d LB iterations\n", max_iter);
+    }
+    
     const char* filename = "lbdata.dat.0";
     
     int i;
@@ -102,18 +114,54 @@ class Main : public CBase_Main {
     greedy_array = CProxy_GreedyRefineLB::ckNew(1);
   }
   void init(){
-    CkPrintf("\nDone init");
+    CkPrintf("\n========== Starting LB Round %d ==========\n", curr_iter);
     GreedyRefineLB *greedy_obj= greedy_array(0).ckLocal();
     greedy_obj->numNodes = statsData->procs.size();
     greedy_obj->stats = statsData;
+    greedy_obj->iter = curr_iter;
     greedy_obj->map_obj_id.reserve(statsData->objData.size());
     greedy_obj->map_obid_pe.reserve(statsData->objData.size());
+    
+    // Always use from_proc as the starting position for this round
+    // from_proc gets updated at the end of each round to track local changes
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       LDObjData &oData = statsData->objData[obj];
       if (!oData.migratable)
         continue;
       greedy_obj->map_obj_id[obj] = oData.objID();
+      
+      // Always use from_proc (which is updated each round)
       greedy_obj->map_obid_pe[obj] = statsData->from_proc[obj];
+    }
+
+    // Print initial stats before LB
+    if (curr_iter == 0) {
+      CkPrintf("\n----------- INITIAL STATS (Before any LB) -----------\n");
+      
+      // Compute max load
+      double maxLoad = 0.0;
+      double totalLoad = 0.0;
+      int n_pes = statsData->procs.size();
+      std::vector<double> peLoads(n_pes, 0.0);
+      
+      for (int obj = 0; obj < statsData->objData.size(); obj++) {
+        int pe = statsData->from_proc[obj];
+        if (pe >= 0 && pe < n_pes) {
+          peLoads[pe] += statsData->objData[obj].wallTime;
+        }
+      }
+      
+      for (int pe = 0; pe < n_pes; pe++) {
+        totalLoad += peLoads[pe];
+        if (peLoads[pe] > maxLoad) maxLoad = peLoads[pe];
+      }
+      
+      CkPrintf("- Max load: %f\n", maxLoad);
+      CkPrintf("- Average load: %f\n", totalLoad / n_pes);
+      
+      // Compute communication bytes
+      computeCommBytes(statsData, greedy_obj, 1);
+      CkPrintf("\n");
     }
 
     greedy_array.AtSync();
@@ -121,33 +169,49 @@ class Main : public CBase_Main {
 
   void done() {
     GreedyRefineLB *greedy_obj= greedy_array(0).ckLocal();
+    
+    // Update both from_proc and to_proc based on migrations
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       if (!statsData->objData[obj].migratable)
         continue;
-      //statsData->from_proc[obj] = greedy_obj->map_obid_pe[obj];
-       std::vector<LBRealType> pos = statsData->objData[obj].position;
-
+      
+      int newPE = greedy_obj->map_obid_pe[obj];
+      statsData->to_proc[obj] = newPE;
+      
+      // Update from_proc to reflect the new starting position for next round
+      // This makes each round track only its local changes
+      statsData->from_proc[obj] = newPE;
     }
-    const char* filename = "lbdata.dat.out.0";
-    // FILE *f = fopen(filename, "w");
-    // if (f==NULL) {
-    //   CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
-    // }
-    // const PUP::machineInfo &machInfo = PUP::machineInfo::current();
-    // PUP::toDisk p(f);
-    // p((char *)&machInfo, sizeof(machInfo)); // machine info
+    
+    CkPrintf("\n========== Completed LB Round %d ==========\n", curr_iter);
+    curr_iter++;
+    
+    if (curr_iter < max_iter) {
+      // Run another LB iteration
+      greedy_array.AtSync();
+    } else {
+      // All iterations done, write output
+      const char* filename = "lbdata.dat.out.0";
+      // FILE *f = fopen(filename, "w");
+      // if (f==NULL) {
+      //   CkAbort("Fatal Error> writeStatsMsgs failed to open the output file %s!\n", filename);
+      // }
+      // const PUP::machineInfo &machInfo = PUP::machineInfo::current();
+      // PUP::toDisk p(f);
+      // p((char *)&machInfo, sizeof(machInfo)); // machine info
 
-    // p|_lb_args.lbversion();   // write version number
-    // p|stats_msg_count;
-    // statsData->pup(p);
+      // p|_lb_args.lbversion();   // write version number
+      // p|stats_msg_count;
+      // statsData->pup(p);
 
-    // fclose(f);
+      // fclose(f);
 
-    write_to_json(statsData);
+      write_to_json(statsData);
 
-    CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
-    CkPrintf("\nDONE");fflush(stdout);
-    CkExit(0);
+      CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
+      CkPrintf("\nDONE");fflush(stdout);
+      CkExit(0);
+    }
   }
 };
 
@@ -327,8 +391,8 @@ double GreedyRefineLB::greedyLB(const std::vector<GreedyRefineLB::GObj*> &pobjs,
   }
 
   if ((CkMyPe() == cur_ld_balancer+1) && (_lb_args.debug() > 1)) {
-    CkPrintf("[%d] %f : Greedy strategy nmoves=%d, max_load=%f\n", CkMyPe(),
-             CkWallTimer() - strategyStartTime, nmoves, max_load);
+    CkPrintf("[%d] %f : Greedy strategy nmoves=%d, max_load=%f, avg_load=%f\n", CkMyPe(),
+             CkWallTimer() - strategyStartTime, nmoves, max_load, totalObjLoad / availablePes);
   }
   return max_load;
 }
@@ -395,11 +459,15 @@ double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
     }
   }
   if (!availablePes) CkAbort("GreedyRefineLB: No available processors\n");
-  obj_imb(stats);
+  //obj_imb(stats);
   for (int i=0; i < n_objs; i++) {
     LDObjData &oData = stats->objData[i];
     GreedyRefineLB::GObj &obj = objs[i];
+    
+    // Always use from_proc as the starting position for this round
+    // from_proc is updated at the end of each round
     int pe = stats->from_proc[i];
+    
     obj.id = i;
     obj.oldPE = pe;
     CkAssert(pe >= 0 && pe <= n_pes);
@@ -597,8 +665,8 @@ void GreedyRefineLB::work()
                "but maxload after lb is %f higher than greedy. Consider testing with A=0, B=-1\n",
                CkMyPe(), migrationRatio, greedyRatio);
     }
-    CkPrintf("[%d] GreedyRefineLB: after lb, max_load=%.3f, migrations=%d(%.2f%%), ratioToGreedy=%.3f\n",
-             CkMyPe(), maxLoad, nmoves, 100.0*migrationRatio, greedyRatio);
+    CkPrintf("[%d] GreedyRefineLB: after lb, max_load=%.3f, avg_load=%.3f, migrations=%d(%.2f%%), ratioToGreedy=%.3f\n",
+             CkMyPe(), maxLoad, totalObjLoad / availablePes, nmoves, 100.0*migrationRatio, greedyRatio);
     computeCommBytes(stats, this, 0);
     CkCallback cb(CkReductionTarget(Main, done), mainProxy);
     contribute(cb);

@@ -50,6 +50,7 @@ public:
   std::vector<int>map_obj_id;
   std::vector<int>map_obid_pe;
   int numNodes;
+  int iter;  // current iteration number
 
   int obj_updated_node_map(int obj_id);
 

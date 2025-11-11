@@ -51,15 +51,26 @@ static obj_imb_funcptr obj_imb;
 class Main : public CBase_Main {
   BaseLB::LDStats *statsData;
   int stats_msg_count;
+  int curr_iter;
+  int max_iter;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
+    curr_iter = 0;
+    max_iter = 1;  // default to 1 iteration
+    
     if(m->argc > 1) {
       int fn_type =  atoi(m->argv[1]);
       if(fn_type == 1)
         obj_imb = (obj_imb_funcptr) load_imb_by_pe;
       else if(fn_type == 2)
         obj_imb = (obj_imb_funcptr) load_imb_by_history;
+    }
+    
+    // Check for max iterations argument
+    if(m->argc > 2) {
+      max_iter = atoi(m->argv[2]);
+      CkPrintf("Running %d LB iterations\n", max_iter);
     }
     const char* filename = "lbdata.dat.0";
         int i;
@@ -86,7 +97,7 @@ class Main : public CBase_Main {
     statsDatax->pup(pd);
 
     
-    obj_imb(statsDatax);
+    //obj_imb(statsDatax);
 
     double pe_load[statsDatax->procs.size()];
     for(int i=0;i<statsDatax->procs.size();i++)
@@ -117,18 +128,57 @@ class Main : public CBase_Main {
     metis_array = CProxy_MetisLB::ckNew(1);
   }
   void init(){
-    CkPrintf("\nDone init");
+    CkPrintf("\n========== Starting LB Round %d ==========\n", curr_iter);
+
+    obj_imb(statsData);
+
     MetisLB *metis_obj= metis_array(0).ckLocal();
     metis_obj->numNodes = statsData->procs.size();
     metis_obj->stats = statsData;
+    metis_obj->iter = curr_iter;
     metis_obj->map_obj_id.reserve(statsData->objData.size());
     metis_obj->map_obid_pe.reserve(statsData->objData.size());
+    
+    // Always use from_proc as the starting position for this round
+    // from_proc gets updated at the end of each round to track local changes
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       LDObjData &oData = statsData->objData[obj];
       if (!oData.migratable)
         continue;
       metis_obj->map_obj_id[obj] = oData.objID();
+      
+      // Always use from_proc (which is updated each round)
       metis_obj->map_obid_pe[obj] = statsData->from_proc[obj];
+    }
+
+    // Print initial stats before LB
+    if (curr_iter == 0) {
+      CkPrintf("\n----------- INITIAL STATS (Before any LB) -----------\n");
+      
+      // Compute max load
+      double maxLoad = 0.0;
+      double totalLoad = 0.0;
+      int n_pes = statsData->procs.size();
+      std::vector<double> peLoads(n_pes, 0.0);
+      
+      for (int obj = 0; obj < statsData->objData.size(); obj++) {
+        int pe = statsData->from_proc[obj];
+        if (pe >= 0 && pe < n_pes) {
+          peLoads[pe] += statsData->objData[obj].wallTime;
+        }
+      }
+      
+      for (int pe = 0; pe < n_pes; pe++) {
+        totalLoad += peLoads[pe];
+        if (peLoads[pe] > maxLoad) maxLoad = peLoads[pe];
+      }
+      
+      CkPrintf("- Max load: %f\n", maxLoad);
+      CkPrintf("- Average load: %f\n", totalLoad / n_pes);
+      
+      // Compute communication bytes
+      computeCommBytes(statsData, metis_obj, 1);
+      CkPrintf("\n");
     }
 
     metis_array.AtSync();
@@ -136,15 +186,31 @@ class Main : public CBase_Main {
 
   void done() {
     MetisLB *metis_obj= metis_array(0).ckLocal();
+    
+    // Update both from_proc and to_proc based on migrations
     for(int obj = 0; obj < statsData->objData.size(); obj++) {
       if (!statsData->objData[obj].migratable)
         continue;
-      //statsData->from_proc[obj] = metis_obj->map_obid_pe[obj];
-       std::vector<LBRealType> pos = statsData->objData[obj].position;
-
+      
+      int newPE = metis_obj->map_obid_pe[obj];
+      statsData->to_proc[obj] = newPE;
+      
+      // Update from_proc to reflect the new starting position for next round
+      // This makes each round track only its local changes
+      statsData->from_proc[obj] = newPE;
     }
+    
+    CkPrintf("\n========== Completed LB Round %d ==========\n", curr_iter);
+    curr_iter++;
+    
+    if (curr_iter < max_iter) {
+      obj_imb(statsData);
 
-    write_to_json(statsData);
+      // Run another LB iteration
+      metis_array.AtSync();
+    } else {
+      // All iterations done, write output
+      write_to_json(statsData);
 
     // const char* filename = "lbdata.dat.out.0";
     // FILE *f = fopen(filename, "w");
@@ -164,6 +230,7 @@ class Main : public CBase_Main {
     // CmiPrintf("WriteStatsMsgs to %s succeed!\n", filename);
     CkPrintf("\nDONE");fflush(stdout);
     CkExit(0);
+    }
   }
 };
 
@@ -303,10 +370,11 @@ void MetisLB::work()
   int migrations = 0;
   for (int i = 0; i < numVertices; i++)
   {
-    if (pemap[i] != ogr->vertices[i].getCurrentPe())
+    if (pemap[i] != ogr->vertices[i].getCurrentPe()) {
       ogr->vertices[i].setNewPe(pemap[i]);
       migrations++;
-      map_obid_pe[i] = pemap[i];
+    }
+    map_obid_pe[i] = pemap[i];
   }
 
   CkPrintf("\nMigrations = %d", migrations);
