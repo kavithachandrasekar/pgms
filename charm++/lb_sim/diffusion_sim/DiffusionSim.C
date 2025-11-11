@@ -187,15 +187,16 @@ void Main::checkStats(double *comm, int n)
     computeCommBytes(globalStatsData, internalBytes, externalBytes, true);
     computeLoad(globalStatsData, load, true, -1);
 
-    if (computedInternal - internalBytes > 1e-6 || computedExternal - externalBytes > 1e-6)
-        CkAbort("Fatal Error> Global and locally computed bytes don't match: %f %f!\n", computedInternal, internalBytes);
+    // used for debug, but with obj_imb applied in diffusion_array only, these will not be the same
+    // if (computedInternal - internalBytes > 1e-6 || computedExternal - externalBytes > 1e-6)
+    //     CkAbort("Fatal Error> Global and locally computed bytes don't match: %f %f!\n", computedInternal, internalBytes);
 
-    if (loadSum - load > 1e-6)
-        CkAbort("Fatal Error> Global and locally computed load don't match: %f %f!\n", loadSum, load);
+    // if (loadSum - load > 1e-6)
+    //     CkAbort("Fatal Error> Global and locally computed load don't match: %f %f!\n", loadSum, load);
 
-    statsBefore.internal = internalBytes;
-    statsBefore.external = externalBytes;
-    statsBefore.avgload = load / numNodes;
+    statsBefore.internal = computedInternal;
+    statsBefore.external = computedExternal;
+    statsBefore.avgload = loadSum / numNodes;
 
     diffusion_array.reportMaxLoad(false);
 }
@@ -392,6 +393,8 @@ DiffusionLB::DiffusionLB()
 
 void DiffusionLB::startRound() {
 
+    auto obj_imb = getImbalanceFunction(1);
+    obj_imb(nodeStats);
     
 
     double internalBytes = 0.0;
