@@ -1,30 +1,8 @@
 typedef void (*obj_imb_funcptr)(BaseLB::LDStats *);
 
-static void load_imb_by_pe(BaseLB::LDStats *statsData)
-{
-  for (int obj = 0; obj < statsData->objData.size(); obj++)
-  {
-    LDObjData &oData = statsData->objData[obj];
-    int pe = statsData->from_proc[obj];
-    if (!oData.migratable)
-    {
-      if (!statsData->procs[pe].available)
-        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
-      continue;
-    }
-    double load = 1.0;
-    // if(pe==5) load = 1.8;
-    // if(pe==14) load = 0.2;
-    //    if(pe == 5) load = 4.0;
-    if (pe % 3 == 0)
-      load = 3.5;
-    // if(pe==5 || pe == 6||pe == 9 || pe ==10) load = 1.0;
-    // if(pe==1 || pe == 2 || pe == 13 || pe ==14) load = 2.0;
-    statsData->objData[obj].wallTime = load;
-  }
-}
 
-static void load_imb_by_history(BaseLB::LDStats *statsData)
+
+static void load_imb_rand40(BaseLB::LDStats *statsData)
 {
   for (int obj = 0; obj < statsData->objData.size(); obj++)
   {
@@ -44,16 +22,10 @@ static void load_imb_by_history(BaseLB::LDStats *statsData)
   }
 }
 
-static void load_imb_rand_inject(BaseLB::LDStats *statsData)
+static void load_imb_inject_middle(BaseLB::LDStats *statsData)
 {
-  int nprocs = statsData->nprocs();
-  // std::random_device rd;
-  // std::mt19937 gen(rd());
-  // std::uniform_int_distribution<> dis(0, nprocs - 1);
-
-  // int rand_pe = dis(gen);
-  int rand_pe = nprocs / 2;
-  CkPrintf("<LOAD IMB> Doubling load on PE %d\n", rand_pe);
+  int nprocs = statsData->n_nodes;
+  int middle_pe = nprocs / 2;
 
   for (int obj = 0; obj < statsData->objData.size(); obj++)
   {
@@ -66,22 +38,16 @@ static void load_imb_rand_inject(BaseLB::LDStats *statsData)
       continue;
     }
 
-    if (pe == rand_pe)
+    if (pe == middle_pe)
     {
-      statsData->objData[obj].wallTime = 2.0;
-    }
-    else
-    {
-      statsData->objData[obj].wallTime = 1.0;
+      statsData->objData[obj].wallTime *= 2.0;
     }
   }
 }
 
-static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
+static void load_imb_bype40(BaseLB::LDStats *statsData)
 {
-  CkPrintf("<LOAD IMB> All pe randomly increase or decrease by up to %20 \n");
-
-  int nprocs = statsData->nprocs();
+  int nprocs = statsData->n_nodes;
   std::vector<double> scale(nprocs, 0);
 
   // fill scale with rand values between .8 and 1.2
@@ -107,7 +73,7 @@ static void load_imb_all_on_pe(BaseLB::LDStats *statsData)
 
     // double load = statsData->objData[obj].wallTime * scale[pe];
     double load = 1.0 * scale[pe];
-    statsData->objData[obj].wallTime = load;
+    statsData->objData[obj].wallTime *= scale[pe];
   }
 }
 
@@ -168,10 +134,10 @@ static void no_imb(BaseLB::LDStats *statsData)
 }
 
 template <typename T>
-static void computeCommBytes(BaseLB::LDStats *statsData, T *obj, int before)
+static void computeCommBytes(BaseLB::LDStats *statsData, T *obj, int before, double &internalBytes, double &externalBytes)
 {
-  double internalBytes = 0.0;
-  double externalBytes = 0.0;
+  internalBytes = 0.0;
+  externalBytes = 0.0;
   //  CkPrintf("\nNumber of edges = %d", statsData->commData.size());
 
   // #pragma omp parallel for num_threads(4)
@@ -209,52 +175,11 @@ static void computeCommBytes(BaseLB::LDStats *statsData, T *obj, int before)
   if (!before)
     tag = "After";
   CkPrintf("\n[%s LB] Internal comm Mbytes = %lf, External comm Mbytes = %lf", tag, internalBytes / (1024 * 1024), externalBytes / (1024 * 1024));
+
+  internalBytes = internalBytes / (1024 * 1024);
+  externalBytes = externalBytes / (1024 * 1024);
+
 }
-template <typename T>
-static void computeCommBytesLocal(BaseLB::LDStats *statsData, T *obj, int before)
-{
-  CkPrintf("Computing comm bytes\n");
-  double internalBytes = 0.0;
-  double externalBytes = 0.0;
-  //  CkPrintf("\nNumber of edges = %d", statsData->commData.size());
-
-  // #pragma omp parallel for num_threads(4)
-  for (int edge = 0; edge < statsData->commData.size(); edge++)
-  {
-    LDCommData &commData = statsData->commData[edge];
-    if (!commData.from_proc() && commData.recv_type() == LD_OBJ_MSG)
-    {
-      LDObjKey from = commData.sender;
-      LDObjKey to = commData.receiver.get_destObj();
-      int fromobj = statsData->getHash(from); // this replaces the simulator get_obj_idx
-      int toobj = statsData->getHash(to);
-
-      int fromNode = obj->obj_node_map(fromobj);
-      int toNode = obj->obj_node_map(toobj);
-      if (!before)
-      {
-        fromNode = obj->obj_updated_node_map(fromobj);
-        toNode = obj->obj_updated_node_map(toobj);
-      }
-
-      // store internal bytes in the last index pos ? -q
-      if (fromNode == toNode)
-        internalBytes += commData.bytes; // internal_arr[omp_get_thread_num()] += commData.bytes;
-      else                               // External communication
-        externalBytes += commData.bytes; // external_arr[omp_get_thread_num()] += commData.bytes;
-    }
-    // else {
-    //    CkPrintf("\nNot the kind of edge we want");
-    //  }
-  } // end for
-
-  const char *tag = "Before";
-  if (!before)
-    tag = "After";
-  CkPrintf("Internal %f, External %f\n", internalBytes, externalBytes);
-  CkPrintf("\n[%s LB] Internal comm Mbytes = %lf, External comm Mbytes = %lf", tag, internalBytes / (1024 * 1024), externalBytes / (1024 * 1024));
-}
-
 static double computeDistance(std::vector<LBRealType> a, std::vector<LBRealType> b)
 {
   LBRealType dist = 0.0;
@@ -331,4 +256,28 @@ static void computeSpread(BaseLB::LDStats *statsData, T *obj, int before)
   if (!before)
     tag = "After";
   CkPrintf("[%s LB] Position spread = %lf\n", tag, avg_spread);
+}
+
+obj_imb_funcptr getImbalanceFunction(int fn_type)
+{
+    obj_imb_funcptr obj_imb;
+    switch (fn_type)
+    {
+    case 1:
+        // randomly multiply object load by 0.6 or 1.4 (50% chance) for all objects
+        obj_imb = (obj_imb_funcptr)load_imb_rand40;
+        break;
+    case 2:
+        // inject load on middle pe (multiply by 2.0)
+        obj_imb = (obj_imb_funcptr)load_imb_inject_middle;
+        break;
+    case 3:
+        obj_imb = (obj_imb_funcptr)load_imb_bype40;
+        break;
+    default:
+        obj_imb = (obj_imb_funcptr)no_imb;
+        break;
+    }
+
+    return obj_imb;
 }
