@@ -48,31 +48,49 @@ using namespace std;
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_MetisLB metis_array;
 static obj_imb_funcptr obj_imb;
+
+struct IterationStats {
+  double max_load;
+  double avg_load;
+  double internal_mb;
+  double external_mb;
+  int num_migrations;
+};
+
 class Main : public CBase_Main {
   BaseLB::LDStats *statsData;
   int stats_msg_count;
   int curr_iter;
   int max_iter;
+  FILE *csv_file;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
     curr_iter = 0;
     max_iter = 1;  // default to 1 iteration
     
-    if(m->argc > 1) {
-      int fn_type =  atoi(m->argv[1]);
-      if(fn_type == 1)
-        obj_imb = (obj_imb_funcptr) load_imb_by_pe;
-      else if(fn_type == 2)
-        obj_imb = (obj_imb_funcptr) load_imb_by_history;
+    // Open CSV file for writing stats
+    csv_file = fopen("metis_stats.csv", "w");
+    if (csv_file) {
+      fprintf(csv_file, "iteration,max_load,avg_load,internal_mb,external_mb,num_migrations\n");
+      fflush(csv_file);
     }
     
-    // Check for max iterations argument
-    if(m->argc > 2) {
+     const char* filename;
+    if(m->argc == 4) {
+      int fn_type =  atoi(m->argv[1]);
+      obj_imb = getImbalanceFunction(fn_type);
+
       max_iter = atoi(m->argv[2]);
       CkPrintf("Running %d LB iterations\n", max_iter);
+
+      filename = m->argv[3];
+    } else {
+      CkPrintf("Usage: ./MetisLB <load_imb_fn: 1,2>, <optional: number of lb iters>\n");
+      CkExit();
     }
-    const char* filename = "lbdata.dat.0";
+ 
+   
         int i;
     FILE *f = fopen(filename, "r");
     if (f==NULL) {
@@ -127,10 +145,20 @@ class Main : public CBase_Main {
     statsData->makeCommHash();
     metis_array = CProxy_MetisLB::ckNew(1);
   }
+  
+  void writeStatsToCSV(int iteration, const IterationStats& stats) {
+    if (csv_file) {
+      fprintf(csv_file, "%d,%.6f,%.6f,%.6f,%.6f,%d\n", 
+              iteration, stats.max_load, stats.avg_load, 
+              stats.internal_mb, stats.external_mb, stats.num_migrations);
+      fflush(csv_file);
+    }
+  }
+  
   void init(){
     CkPrintf("\n========== Starting LB Round %d ==========\n", curr_iter);
 
-    obj_imb(statsData);
+    load_setconst(statsData);
 
     MetisLB *metis_obj= metis_array(0).ckLocal();
     metis_obj->numNodes = statsData->procs.size();
@@ -151,35 +179,49 @@ class Main : public CBase_Main {
       metis_obj->map_obid_pe[obj] = statsData->from_proc[obj];
     }
 
+    // Collect stats before LB (for iteration 0 this is initial state)
+    IterationStats stats;
+    stats.num_migrations = 0;  // No migrations before first LB
+    
+    double maxLoad = 0.0;
+    double totalLoad = 0.0;
+    int n_pes = statsData->procs.size();
+    std::vector<double> peLoads(n_pes, 0.0);
+    
+    for (int obj = 0; obj < statsData->objData.size(); obj++) {
+      int pe = statsData->from_proc[obj];
+      if (pe >= 0 && pe < n_pes) {
+        peLoads[pe] += statsData->objData[obj].wallTime;
+      }
+    }
+    
+    for (int pe = 0; pe < n_pes; pe++) {
+      totalLoad += peLoads[pe];
+      if (peLoads[pe] > maxLoad) maxLoad = peLoads[pe];
+    }
+    
+    stats.max_load = maxLoad;
+    stats.avg_load = totalLoad / n_pes;
+    
+    // Compute communication bytes
+    double internal = 0.0, external = 0.0;
+    computeCommBytes(statsData, metis_obj, 1, internal, external);
+    stats.internal_mb = internal;
+    stats.external_mb = external;
+    
     // Print initial stats before LB
     if (curr_iter == 0) {
       CkPrintf("\n----------- INITIAL STATS (Before any LB) -----------\n");
-      
-      // Compute max load
-      double maxLoad = 0.0;
-      double totalLoad = 0.0;
-      int n_pes = statsData->procs.size();
-      std::vector<double> peLoads(n_pes, 0.0);
-      
-      for (int obj = 0; obj < statsData->objData.size(); obj++) {
-        int pe = statsData->from_proc[obj];
-        if (pe >= 0 && pe < n_pes) {
-          peLoads[pe] += statsData->objData[obj].wallTime;
-        }
-      }
-      
-      for (int pe = 0; pe < n_pes; pe++) {
-        totalLoad += peLoads[pe];
-        if (peLoads[pe] > maxLoad) maxLoad = peLoads[pe];
-      }
-      
-      CkPrintf("- Max load: %f\n", maxLoad);
-      CkPrintf("- Average load: %f\n", totalLoad / n_pes);
-      
-      // Compute communication bytes
-      computeCommBytes(statsData, metis_obj, 1);
+      CkPrintf("- Max load: %f\n", stats.max_load);
+      CkPrintf("- Average load: %f\n", stats.avg_load);
+      CkPrintf("- Internal comm: %f MB, External comm: %f MB\n", stats.internal_mb, stats.external_mb);
       CkPrintf("\n");
+    
+      
     }
+    // Write stats to CSV
+    writeStatsToCSV(curr_iter, stats);
+    
 
     metis_array.AtSync();
   }
@@ -200,9 +242,42 @@ class Main : public CBase_Main {
       statsData->from_proc[obj] = newPE;
     }
     
+    IterationStats stats;
+    
+    double totalLoad = 0.0;
+    double maxLoad = 0.0;
+    double internal = 0.0, external = 0.0;
+    int n_pes = statsData->procs.size();
+    std::vector<double> peLoads(n_pes, 0.0);
+    
+    for (int obj = 0; obj < statsData->objData.size(); obj++) {
+      int pe = statsData->from_proc[obj];
+      if (pe >= 0 && pe < n_pes) {
+        peLoads[pe] += statsData->objData[obj].wallTime;
+      }
+    }
+    
+    for (int pe = 0; pe < n_pes; pe++) {
+      totalLoad += peLoads[pe];
+      if (peLoads[pe] > maxLoad) maxLoad = peLoads[pe];
+    }
+    
+    stats.max_load = maxLoad;
+    stats.avg_load = totalLoad / n_pes;
+    
+    computeCommBytes(statsData, metis_obj, 1, internal, external);
+    stats.internal_mb = internal;
+    stats.external_mb = external;
+    
+    // Get the migration count from the MetisLB object
+    stats.num_migrations = metis_obj->num_migrations;
+  
+
     CkPrintf("\n========== Completed LB Round %d ==========\n", curr_iter);
     curr_iter++;
-    
+
+      writeStatsToCSV(curr_iter, stats);  
+
     if (curr_iter < max_iter) {
       obj_imb(statsData);
 
@@ -211,6 +286,12 @@ class Main : public CBase_Main {
     } else {
       // All iterations done, write output
       write_to_json(statsData);
+      
+      // Close CSV file
+      if (csv_file) {
+        fclose(csv_file);
+        CkPrintf("\nStats written to metis_stats.csv\n");
+      }
 
     // const char* filename = "lbdata.dat.out.0";
     // FILE *f = fopen(filename, "w");
@@ -247,7 +328,7 @@ int MetisLB::obj_updated_node_map(int obj_id) {
 
 void MetisLB::work()
 {
-  computeCommBytes(stats, this, 1);
+  double internal_mb = 0.0, external_mb = 0.0;
   strategyStartTime = CkWallTimer();
   /** ========================== INITIALIZATION ============================= */
   ProcArray* parr = new ProcArray(stats);
@@ -376,6 +457,9 @@ void MetisLB::work()
     }
     map_obid_pe[i] = pemap[i];
   }
+  
+  // Store migrations count for later use
+  num_migrations = migrations;
 
   CkPrintf("\nMigrations = %d", migrations);
   double pe_load[stats->procs.size()];
@@ -394,7 +478,10 @@ void MetisLB::work()
   ogr->convertDecisions(stats);
   delete parr;
   delete ogr;
-  computeCommBytes(stats, this, 0);
+
+  computeCommBytes(stats, this, 0, internal_mb, external_mb);
+
+  
   CkCallback cb(CkReductionTarget(Main, done), mainProxy);
   contribute(cb);
 }

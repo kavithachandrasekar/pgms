@@ -46,23 +46,40 @@ using namespace std;
 /*readonly*/ CProxy_Main mainProxy;
 /*readonly*/ CProxy_GreedyRefineLB greedy_array;
 static obj_imb_funcptr obj_imb;
+
+struct IterationStats {
+  double max_load;
+  double avg_load;
+  double internal_mb;
+  double external_mb;
+  int num_migrations;
+};
+
 class Main : public CBase_Main {
   BaseLB::LDStats *statsData;
   int stats_msg_count;
   int curr_iter;
   int max_iter;
+  FILE *csv_file;
   public:
   Main(CkArgMsg* m) {
     mainProxy = thisProxy;
     curr_iter = 0;
     max_iter = 1;  // default to 1 iteration
     
+    // Open CSV file for writing stats
+    csv_file = fopen("greedy_refine_stats.csv", "w");
+    if (csv_file) {
+      fprintf(csv_file, "iteration,max_load,avg_load,internal_mb,external_mb,num_migrations\n");
+      fflush(csv_file);
+    }
+    
     if(m->argc > 1) {
       int fn_type =  atoi(m->argv[1]);
-      if(fn_type == 1)
-        obj_imb = (obj_imb_funcptr) load_imb_by_pe;
-      else if(fn_type == 2)
-        obj_imb = (obj_imb_funcptr) load_imb_by_history;
+      obj_imb = getImbalanceFunction(fn_type);
+    } else {
+      CkPrintf("Usage: ./GreedyRefineLB <load_imb_fn: 1,2>, <optional: number of lb iters>\n");
+      CkExit();
     }
     
     // Check for max iterations argument
@@ -70,8 +87,14 @@ class Main : public CBase_Main {
       max_iter = atoi(m->argv[2]);
       CkPrintf("Running %d LB iterations\n", max_iter);
     }
-    
+
     const char* filename = "lbdata.dat.0";
+    if (m->argc > 3) {
+      filename = m->argv[3];
+    } else {
+      CkPrintf("Usage: ./GreedyRefineLB <load_imb_fn: 1,2>, <optional: number of lb iters>, <input_filename>\n");
+      CkExit();
+    }
     
     int i;
     FILE *f = fopen(filename, "r");
@@ -113,6 +136,16 @@ class Main : public CBase_Main {
     statsData->makeCommHash();
     greedy_array = CProxy_GreedyRefineLB::ckNew(1);
   }
+  
+  void writeStatsToCSV(int iteration, const IterationStats& stats) {
+    if (csv_file) {
+      fprintf(csv_file, "%d,%.6f,%.6f,%.6f,%.6f,%d\n", 
+              iteration, stats.max_load, stats.avg_load, 
+              stats.internal_mb, stats.external_mb, stats.num_migrations);
+      fflush(csv_file);
+    }
+  }
+  
   void init(){
     CkPrintf("\n========== Starting LB Round %d ==========\n", curr_iter);
     GreedyRefineLB *greedy_obj= greedy_array(0).ckLocal();
@@ -134,35 +167,48 @@ class Main : public CBase_Main {
       greedy_obj->map_obid_pe[obj] = statsData->from_proc[obj];
     }
 
+    // Collect stats before LB (for iteration 0 this is initial state)
+    IterationStats stats;
+    stats.num_migrations = 0;  // No migrations before first LB
+    
+    double maxLoad = 0.0;
+    double totalLoad = 0.0;
+    int n_pes = statsData->procs.size();
+    std::vector<double> peLoads(n_pes, 0.0);
+    
+    for (int obj = 0; obj < statsData->objData.size(); obj++) {
+      int pe = statsData->from_proc[obj];
+      if (pe >= 0 && pe < n_pes) {
+        peLoads[pe] += statsData->objData[obj].wallTime;
+      }
+    }
+    
+    for (int pe = 0; pe < n_pes; pe++) {
+      totalLoad += peLoads[pe];
+      if (peLoads[pe] > maxLoad) maxLoad = peLoads[pe];
+    }
+    
+    stats.max_load = maxLoad;
+    stats.avg_load = totalLoad / n_pes;
+    
+    // Compute communication bytes
+    double internal = 0.0, external = 0.0;
+    computeCommBytes(statsData, greedy_obj, 1, internal, external);
+    stats.internal_mb = internal;
+    stats.external_mb = external;
+    
     // Print initial stats before LB
     if (curr_iter == 0) {
+      load_setconst(statsData);
       CkPrintf("\n----------- INITIAL STATS (Before any LB) -----------\n");
-      
-      // Compute max load
-      double maxLoad = 0.0;
-      double totalLoad = 0.0;
-      int n_pes = statsData->procs.size();
-      std::vector<double> peLoads(n_pes, 0.0);
-      
-      for (int obj = 0; obj < statsData->objData.size(); obj++) {
-        int pe = statsData->from_proc[obj];
-        if (pe >= 0 && pe < n_pes) {
-          peLoads[pe] += statsData->objData[obj].wallTime;
-        }
-      }
-      
-      for (int pe = 0; pe < n_pes; pe++) {
-        totalLoad += peLoads[pe];
-        if (peLoads[pe] > maxLoad) maxLoad = peLoads[pe];
-      }
-      
-      CkPrintf("- Max load: %f\n", maxLoad);
-      CkPrintf("- Average load: %f\n", totalLoad / n_pes);
-      
-      // Compute communication bytes
-      computeCommBytes(statsData, greedy_obj, 1);
+      CkPrintf("- Max load: %f\n", stats.max_load);
+      CkPrintf("- Average load: %f\n", stats.avg_load);
+      CkPrintf("- Internal comm: %f MB, External comm: %f MB\n", stats.internal_mb, stats.external_mb);
       CkPrintf("\n");
     }
+    
+    // Write stats to CSV
+    writeStatsToCSV(curr_iter, stats);
 
     greedy_array.AtSync();
   }
@@ -183,14 +229,55 @@ class Main : public CBase_Main {
       statsData->from_proc[obj] = newPE;
     }
     
+    // Collect stats after LB
+    IterationStats stats;
+    
+    double totalLoad = 0.0;
+    double maxLoad = 0.0;
+    int n_pes = statsData->procs.size();
+    std::vector<double> peLoads(n_pes, 0.0);
+    
+    for (int obj = 0; obj < statsData->objData.size(); obj++) {
+      int pe = statsData->from_proc[obj];
+      if (pe >= 0 && pe < n_pes) {
+        peLoads[pe] += statsData->objData[obj].wallTime;
+      }
+    }
+    
+    for (int pe = 0; pe < n_pes; pe++) {
+      totalLoad += peLoads[pe];
+      if (peLoads[pe] > maxLoad) maxLoad = peLoads[pe];
+    }
+    
+    stats.max_load = maxLoad;
+    stats.avg_load = totalLoad / n_pes;
+    
+    double internal = 0.0, external = 0.0;
+    computeCommBytes(statsData, greedy_obj, 1, internal, external);
+    stats.internal_mb = internal;
+    stats.external_mb = external;
+    
+    // Get the migration count from the GreedyRefineLB object
+    stats.num_migrations = greedy_obj->num_migrations;
+    
     CkPrintf("\n========== Completed LB Round %d ==========\n", curr_iter);
     curr_iter++;
+    
+    // Write stats to CSV (iteration number is curr_iter because we just completed an LB round)
+    writeStatsToCSV(curr_iter, stats);
     
     if (curr_iter < max_iter) {
       // Run another LB iteration
       greedy_array.AtSync();
     } else {
       // All iterations done, write output
+      
+      // Close CSV file
+      if (csv_file) {
+        fclose(csv_file);
+        CkPrintf("\nStats written to greedy_refine_stats.csv\n");
+      }
+      
       const char* filename = "lbdata.dat.out.0";
       // FILE *f = fopen(filename, "w");
       // if (f==NULL) {
@@ -459,7 +546,7 @@ double GreedyRefineLB::fillData(BaseLB::LDStats *stats,
     }
   }
   if (!availablePes) CkAbort("GreedyRefineLB: No available processors\n");
-  //obj_imb(stats);
+  obj_imb(stats);
   for (int i=0; i < n_objs; i++) {
     LDObjData &oData = stats->objData[i];
     GreedyRefineLB::GObj &obj = objs[i];
@@ -572,7 +659,7 @@ void GreedyRefineLB::AtSync() {
 
 void GreedyRefineLB::work()
 {
-  computeCommBytes(stats, this, 1);
+  //computeCommBytes(stats, this, 1);
   strategyStartTime = CkWallTimer();
   float A = 1.001, B = FLT_MAX; // Use A=0, B=-1 to imitate regular Greedy (ignore migrations)
   if (concurrent) {
@@ -647,6 +734,9 @@ void GreedyRefineLB::work()
     }
   }
   // ----------------------------------------------
+  
+  // Store migration count for later use
+  num_migrations = nmoves;
 
   if (concurrent) {
 
@@ -667,7 +757,7 @@ void GreedyRefineLB::work()
     }
     CkPrintf("[%d] GreedyRefineLB: after lb, max_load=%.3f, avg_load=%.3f, migrations=%d(%.2f%%), ratioToGreedy=%.3f\n",
              CkMyPe(), maxLoad, totalObjLoad / availablePes, nmoves, 100.0*migrationRatio, greedyRatio);
-    computeCommBytes(stats, this, 0);
+    //computeCommBytes(stats, this, 0);
     CkCallback cb(CkReductionTarget(Main, done), mainProxy);
     contribute(cb);
   }

@@ -52,6 +52,7 @@ public:
   std::vector<int>map_obid_pe;
   int numNodes;
   int iter;
+  int num_migrations;
 
 private:
   bool QueryBalanceNow(int step) { return true; }

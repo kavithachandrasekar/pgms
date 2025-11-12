@@ -9,9 +9,9 @@
 
 #define NUM_NEIGHBORS _lb_args.diffusionNumNbors()
 
+
 /*readonly*/ int numNodes;
 /*readonly*/ int numPes;
-
 struct statsToPrint
 {
     double internal;
@@ -20,6 +20,15 @@ struct statsToPrint
     double maxload;
 
     double numMigrations;
+};
+
+struct IterationStats {
+    int iteration;
+    double max_load;
+    double avg_load;
+    double internal_mb;
+    double external_mb;
+    int num_migrations;
 };
 
 class Main : public CBase_Main
@@ -37,6 +46,10 @@ private:
 
     int max_iter;
     int curr_iter;
+
+    FILE *csv_file;
+
+    void writeStatsToCSV(int iteration, const IterationStats& stats);
 
 public:
     Main(CkArgMsg *m);

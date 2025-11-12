@@ -14,48 +14,14 @@
 /*readonly*/ CProxy_NodeCache nodeCacheProxy;
 /*readonly*/ CProxy_DiffusionLB diffusion_array;
 /*readonly*/ std::string input_filename;
+/*readonly*/ int obj_imb_type;
+
+
 
 #define ITERATIONS 40
 
 
-obj_imb_funcptr getImbalanceFunction(int fn_type)
-{
-    obj_imb_funcptr obj_imb;
-    switch (fn_type)
-    {
-    case 1:
-        // for 1/3 PEs, every object on that PE has load set to 3.5
-        // on all other PEs, every object has load set to 1.0
-        // TODO: what was the original load? its just trashed?
-        obj_imb = (obj_imb_funcptr)load_imb_by_pe;
-        break;
-    case 2:
-        // randomly multiply object load by 0.8 or 1.2 (50% chance) for all objects
-        obj_imb = (obj_imb_funcptr)load_imb_by_history;
-        break;
-    case 3:
-        // randomly inject load on 1 PE
-        obj_imb = (obj_imb_funcptr)load_imb_rand_inject;
-        break;
-    case 4:
-        // randomly multiply object load by 5 or 0.2 (50% chance) for all objects on two paired PEs (rand)
-        obj_imb = (obj_imb_funcptr)load_imb_rand_pair;
-        break;
-    case 5:
-        // all pe randomly increase or decrease by up to %20
-        obj_imb = (obj_imb_funcptr)load_imb_all_on_pe;
-        break;
-    case 6:
-        obj_imb = (obj_imb_funcptr)load_setconst;
-        break;
-    default:
-        CkPrintf("No load imbalance injected\n");
-        obj_imb = (obj_imb_funcptr)no_imb;
-        break;
-    }
 
-    return obj_imb;
-}
 void readInputStats(const char *input_filename, BaseLB::LDStats *statsData, int &stats_msg_count)
 {
     FILE *f = fopen(input_filename, "r");
@@ -79,7 +45,6 @@ void readInputStats(const char *input_filename, BaseLB::LDStats *statsData, int 
   p|_lb_args.lbversion();		// write version number
   p|stats_msg_count;
 
-  statsData->n_nodes = CkNumNodes();
   statsData->pup(p);
     }
     else
@@ -88,6 +53,13 @@ void readInputStats(const char *input_filename, BaseLB::LDStats *statsData, int 
             CkAbort("Simulator doesn't work with JSON and comm yet. Use centroid, or generate initial data some other way.\n");
         read_from_json(f, statsData);
     }
+}
+
+void Main::writeStatsToCSV(int iteration, const IterationStats& stats) {
+    fprintf(csv_file, "%d,%f,%f,%f,%f,%d\n", 
+            iteration, stats.max_load, stats.avg_load, 
+            stats.internal_mb, stats.external_mb, stats.num_migrations);
+    fflush(csv_file);
 }
 
 Main::Main(CkArgMsg *m)
@@ -106,8 +78,8 @@ Main::Main(CkArgMsg *m)
     }
 
     // Selecting load imbalance function
-    int fn_type = atoi(m->argv[1]);
-    obj_imb = getImbalanceFunction(fn_type);
+    obj_imb_type = atoi(m->argv[1]);
+    obj_imb = getImbalanceFunction(obj_imb_type);
 
     input_filename = m->argv[2];
     output_filename = m->argv[4];
@@ -121,6 +93,8 @@ Main::Main(CkArgMsg *m)
     globalStatsData->makeCommHash();
     numNodes = globalStatsData->n_nodes;
 
+    load_setconst(globalStatsData);
+
    
     CkPrintf("Global stats from %s parsed by Main: %d nodes and %d migratable objects \n", input_filename.c_str(), numNodes, globalStatsData->n_migrateobjs);
 
@@ -133,6 +107,14 @@ Main::Main(CkArgMsg *m)
         max_iter = atoi(m->argv[4]);
     }
 
+    // Open CSV file for statistics
+    csv_file = fopen("diffusion_stats.csv", "w");
+    if (csv_file == NULL) {
+        CkPrintf("Error: Could not open diffusion_stats.csv for writing\n");
+        CkExit();
+    }
+    fprintf(csv_file, "iteration,max_load,avg_load,internal_mb,external_mb,num_migrations\n");
+    fflush(csv_file);
 }
 
 void Main::init()
@@ -146,6 +128,16 @@ void Main::collectMaxLoad(double load)
     statsBefore.maxload = load;
     CkPrintf("----------- INITIAL STATS -----------\n");
     printStats(statsBefore);
+
+    // Write initial stats to CSV (iteration 0)
+    IterationStats initial_stats;
+    initial_stats.iteration = 0;
+    initial_stats.max_load = statsBefore.maxload;
+    initial_stats.avg_load = statsBefore.avgload;
+    initial_stats.internal_mb = statsBefore.internal / (1024.0 * 1024.0);
+    initial_stats.external_mb = statsBefore.external / (1024.0 * 1024.0);
+    initial_stats.num_migrations = 0;
+    writeStatsToCSV(0, initial_stats);
 }
 
 void Main::collectMaxLoadFinal(double load)
@@ -154,6 +146,17 @@ void Main::collectMaxLoadFinal(double load)
 
     statsAfter.maxload = load;
     printStats(statsAfter);
+
+    // Write stats after LB to CSV
+    IterationStats iter_stats;
+    iter_stats.iteration = curr_iter + 1;
+    iter_stats.max_load = statsAfter.maxload;
+    iter_stats.avg_load = statsAfter.avgload;
+    iter_stats.internal_mb = statsAfter.internal / (1024.0 * 1024.0);
+    iter_stats.external_mb = statsAfter.external / (1024.0 * 1024.0);
+    iter_stats.num_migrations = (int)statsAfter.numMigrations;
+    writeStatsToCSV(curr_iter + 1, iter_stats);
+
     done();
 }
 
@@ -214,8 +217,11 @@ void Main::done()
 {
     curr_iter++;
 
-    if (curr_iter == max_iter) 
+    if (curr_iter == max_iter) {
+        fclose(csv_file);
+        CkPrintf("Statistics written to diffusion_stats.csv\n");
         CkExit();
+    }
     else
         diffusion_array.startRound();
 }
@@ -228,7 +234,11 @@ NodeCache::NodeCache()
 
     globalStatsData->deleteCommHash();
     globalStatsData->makeCommHash();
-    numNodes = globalStatsData->n_nodes;
+    globalStatsData->n_nodes = numNodes;
+
+    CkPrintf("Global stats from %s parsed by NodeCache: %d nodes and %d migratable objects \n", input_filename.c_str(), numNodes, globalStatsData->n_migrateobjs);
+
+    load_setconst(globalStatsData);
 
     contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 
@@ -388,12 +398,14 @@ DiffusionLB::DiffusionLB()
     nodeStats = new BaseLB::LDStats();
     iter = 0;
 
+    nodeStats->n_nodes = numNodes; // need to know total number for load imb
+
     setupLocalStats(nodeStats, true);
 }
 
 void DiffusionLB::startRound() {
 
-    auto obj_imb = getImbalanceFunction(1);
+    auto obj_imb = getImbalanceFunction(obj_imb_type);
     obj_imb(nodeStats);
     
 
