@@ -1,0 +1,6 @@
+mainmodule convert {
+
+  mainchare Main {
+    entry Main(CkArgMsg *m);
+  };
+};
