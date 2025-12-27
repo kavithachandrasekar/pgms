@@ -124,7 +124,7 @@ void write_to_json(BaseLB::LDStats* statsData)
     }
 
     LDObjData odata = statsData->objData[obj];
-    objpe[std::to_string(obj)] = {{"migratable", odata.migratable},
+    objpe[std::to_string(odata.objID())] = {{"migratable", odata.migratable},
                                   {"position", odata.position},
                                   {"wallTime", odata.wallTime},
                                   {"oldpe", from},
