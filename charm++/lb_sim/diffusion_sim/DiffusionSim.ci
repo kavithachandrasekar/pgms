@@ -29,7 +29,7 @@ mainmodule DiffusionSim
         entry[reductiontarget] void reportMaxLoad(bool final);
 
         entry void RebuildStats();
-
+        entry[reductiontarget] void startMSTBarrier();
     
 
         // in DiffusionNeighbors.C

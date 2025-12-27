@@ -80,6 +80,9 @@ private:
 
     int myNodeId;
     int rank0PE;
+    
+    double startTimer;
+    double stopTimer;
 
     double my_load;
     double my_loadAfterTransfer;
@@ -127,6 +130,9 @@ public:
     DiffusionLB();
 
     ~DiffusionLB();
+
+    void startMSTBarrier();
+
     void startRound();
         void RebuildStats();
 
