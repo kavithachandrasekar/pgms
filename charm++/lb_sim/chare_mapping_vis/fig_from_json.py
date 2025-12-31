@@ -167,13 +167,46 @@ def plot(json_file, mode = 'pe', highlight = None, three_d=True, show='both'):
   print("before LB: max load =", max(load_old), "avg load =", sum(load_old)/num_pes)
   print("after  LB: max load =", max(load_new), "avg load =", sum(load_new)/num_pes)
   
+  # compute communication statistics
+  if 'commData' in data:
+    comm_data = data['commData']
+    internal_comm_new = 0.0
+    external_comm_new = 0.0
+    
+    # Build objID to PE mapping (use the JSON key directly as the object ID)
+    obj_to_new_pe = {int(obj): objects[obj]['newpe'] for obj in objects}
+    
+    for comm in comm_data:
+      sender_id = comm_data[comm]['sender_obj']['objID']
+      receiver_id = comm_data[comm]['receiver_obj']['objID']
+      msg_size = comm_data[comm]['msg_size']
+
+      
+      # New PE assignment
+      if sender_id in obj_to_new_pe and receiver_id in obj_to_new_pe:
+        if obj_to_new_pe[sender_id] == obj_to_new_pe[receiver_id]:
+          internal_comm_new += msg_size
+        else:
+          external_comm_new += msg_size
+    
+    # Convert to MB
+    internal_comm_new_mb = internal_comm_new / (1024.0 * 1024.0)
+    external_comm_new_mb = external_comm_new / (1024.0 * 1024.0)
+    
+    print(f"\nCommunication (after LB):")
+    print(f"  Internal: {internal_comm_new_mb:.5f} MB")
+    print(f"  External: {external_comm_new_mb:.5f} MB")
+    print(f"  Total:    {internal_comm_new_mb + external_comm_new_mb:.5f} MB")
+  
+  
+  
   
   
 # %%
-plot("/Users/maya/ppl/pgms/charm++/lb_sim/greedy_refine_sim/lbdump.json", 'pe', highlight=None, show='old')
+plot("/Users/maya/ppl/pgms/charm++/lb_sim/greedy_refine_sim/lbdump.json", 'pe', highlight=None, show='new')
 
 # %%
-plot("/Users/maya/ppl/pgms/charm++/lb_sim/diffusion_sim/lbdump-cent.json", 'pe', highlight=None, show='new')
+plot("/Users/maya/ppl/pgms/charm++/lb_sim/diffusion_sim/lbdump.json", 'pe', highlight=None, show='new')
 
 # %%
 plot("/Users/maya/ppl/pgms/charm++/lb_sim/metis/lbdump.json", 'pe', highlight=None, show='new')
