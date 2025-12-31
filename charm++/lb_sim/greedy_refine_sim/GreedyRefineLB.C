@@ -199,7 +199,7 @@ class Main : public CBase_Main {
     
     // Print initial stats before LB
     if (curr_iter == 0) {
-      load_setconst(statsData);
+      //load_setconst(statsData);
       CkPrintf("\n----------- INITIAL STATS (Before any LB) -----------\n");
       CkPrintf("- Max load: %f\n", stats.max_load);
       CkPrintf("- Average load: %f\n", stats.avg_load);
