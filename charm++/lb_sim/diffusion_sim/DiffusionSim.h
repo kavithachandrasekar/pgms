@@ -43,8 +43,6 @@ private:
 
     statsToPrint statsBefore;
     statsToPrint statsAfter;
-
-    int max_iter;
     int curr_iter;
 
     FILE *csv_file;
@@ -68,7 +66,7 @@ public:
     BaseLB::LDStats *globalStatsData;
     NodeCache();
 
-    void updateGlobalStatsData(BaseLB::LDStats *nodeStats, int thisIndex);
+    void updateGlobalStatsData(BaseLB::LDStats *nodeStats, int thisIndex, bool final);
     int nReceived;
 };
 

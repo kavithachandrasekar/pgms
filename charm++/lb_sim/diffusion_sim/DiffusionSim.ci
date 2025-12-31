@@ -5,6 +5,8 @@ mainmodule DiffusionSim
     readonly CProxy_DiffusionLB diffusion_array;
     readonly std::string input_filename;
     readonly int numNodes;
+    readonly int obj_imb_type;
+    readonly int max_iter;
 
     mainchare Main
     {

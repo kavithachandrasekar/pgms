@@ -15,6 +15,7 @@
 /*readonly*/ CProxy_DiffusionLB diffusion_array;
 /*readonly*/ std::string input_filename;
 /*readonly*/ int obj_imb_type;
+/*readonly*/ int max_iter;
 
 
 
@@ -93,7 +94,7 @@ Main::Main(CkArgMsg *m)
     globalStatsData->makeCommHash();
     numNodes = globalStatsData->n_nodes;
 
-    load_setconst(globalStatsData);
+    //load_setconst(globalStatsData);
 
    
     CkPrintf("Global stats from %s parsed by Main: %d nodes and %d migratable objects \n", input_filename.c_str(), numNodes, globalStatsData->n_migrateobjs);
@@ -238,7 +239,7 @@ NodeCache::NodeCache()
 
     CkPrintf("Global stats from %s parsed by NodeCache: %d nodes and %d migratable objects \n", input_filename.c_str(), numNodes, globalStatsData->n_migrateobjs);
 
-    load_setconst(globalStatsData);
+    //load_setconst(globalStatsData);
 
     contribute(CkCallback(CkReductionTarget(Main, init), mainProxy));
 
@@ -519,7 +520,7 @@ int DiffusionLB::step() {
 }
 
 
-void NodeCache::updateGlobalStatsData(BaseLB::LDStats *nodeStats, int thisIndex) {
+void NodeCache::updateGlobalStatsData(BaseLB::LDStats *nodeStats, int thisIndex, bool final) {
     
     nReceived++;
 
@@ -570,6 +571,13 @@ void NodeCache::updateGlobalStatsData(BaseLB::LDStats *nodeStats, int thisIndex)
 
         nReceived = 0;
         diffusion_array.RebuildStats();
+
+        if (final) {
+            // Write final stats to JSON (outputs to lbdump.json)
+            CkPrintf("Writing final load balancing results to lbdump.json\n");
+            write_to_json(globalStatsData);
+        }
+        
     }
 }
 
@@ -577,7 +585,8 @@ void DiffusionLB::ProcessMigrations()
 {
     iter++;
 
-    myNodeCache->updateGlobalStatsData(nodeStats, thisIndex);
+    bool is_final = (iter == max_iter);
+    myNodeCache->updateGlobalStatsData(nodeStats, thisIndex, is_final);
 
 }
 
