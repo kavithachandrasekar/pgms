@@ -110,6 +110,9 @@ private:
     int nodeSize;
     int neighborCount;
 
+    double myNodeInternalBytes;
+    double myNodeExternalBytes;
+
     int iter;
     std::vector<std::vector<LBRealType>> allNodeCentroids;
     std::vector<int> allNodeObjCount;
@@ -132,7 +135,19 @@ public:
     void startMSTBarrier();
 
     void startRound();
-        void RebuildStats();
+    void RebuildStats();
+
+    static void startOverallTiming() {  }
+    static void startNeighborTiming() { }
+    static void endNeighborTiming() { }
+    static void startPseudoLBTiming() {  }
+    static void endPseudoLBTiming() {  }
+    static void startOtherTiming() {  }
+    static void endOtherTiming() { }
+
+    void startStrategyBarrier();
+
+
 
     void reportMaxLoad(bool final);
 
@@ -176,6 +191,11 @@ public:
     void PseudoLoadBalancing();
     void pseudolb_barrier(int allZero);
 
+    void print_max_load(double max);
+    void print_avg_load(double sum);
+    void print_external_comm(double sum);
+    void print_internal_comm(double sum);
+
 
     int pseudo_itr;  // iteration count
     int temp_itr;
@@ -189,7 +209,11 @@ public:
 
     int* gain_val;
 
-    int GetPENumber(int& obj_id);
+    std::vector<int> prefixObjects;
+
+    void CollectStats();
+
+    int GetRank(int& obj_id);
     void LoadMetaInfo(LDObjHandle objHandle, int objId, double load, int from_pe, int to_pe);
     void LoadReceived(int objId, int fromPE);
     int step();

@@ -289,6 +289,8 @@ void DiffusionLB::setupLocalStats(BaseLB::LDStats *statsData, bool before)
                 nmigratable++;
         }
     }
+
+    prefixObjects[0] = nodeStats->objData.size();
     nodeStats->n_migrateobjs = nmigratable;
 
     nodeStats->deleteCommHash();
@@ -399,6 +401,11 @@ DiffusionLB::DiffusionLB()
     nodeStats = new BaseLB::LDStats();
     iter = 0;
 
+    myNodeInternalBytes = 0.0;
+    myNodeExternalBytes = 0.0;
+
+    prefixObjects.resize(1);
+
     nodeStats->n_nodes = numNodes; // need to know total number for load imb
 
     setupLocalStats(nodeStats, true);
@@ -506,7 +513,7 @@ void DiffusionLB::pairedSort(int *A, std::vector<double> B)
     }
 }
 
-int DiffusionLB::GetPENumber(int& obj_id)
+int DiffusionLB::GetRank(int& obj_id)
 {
     return 0;
 }
