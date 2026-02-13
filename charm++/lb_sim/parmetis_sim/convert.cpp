@@ -2,6 +2,8 @@
 #include "BaseLB.h" 
 #include "../sim_headers/lbdump_jsontools.h"
 
+#include "../sim_headers/common_lbsim.h"
+
 #include "convert.decl.h"
 class Main : public CBase_Main {
     public:
@@ -31,6 +33,9 @@ class Main : public CBase_Main {
     p|_lb_args.lbversion();		// write version number
     p|stats_msg_count;
     statsData->pup(p);
+
+
+    load_imb_bype_deterministic(statsData);
 
     write_to_json(statsData);
     
