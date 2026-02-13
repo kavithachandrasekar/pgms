@@ -269,20 +269,25 @@ int main(int argc, char *argv[]) {
     xadj[0] = 0;
     int edge_idx = 0;
     
-    // Scale wallTime to integer weights (convert seconds to microseconds)
-    // This preserves relative ratios across all ranks without normalization
+    // Scale wallTime to integer weights
+    double vertex_scale = atof(argv[3]);
+    // Use a separate (potentially larger) scale for edges to prioritize communication
+    double edge_scale = argc > 4 ? atof(argv[4]) : vertex_scale;
+    
     for (int i = 0; i < nvtxs_local; i++) {
-        vwgt[i] = (idx_t)(local_objects[i].wallTime * 1000000.0);
+        vwgt[i] = (idx_t)(local_objects[i].wallTime * vertex_scale);
         if (vwgt[i] == 0) vwgt[i] = 1;  // ensure non-zero weight
         
         for (int nbor : local_adj[i]) {
             adjncy[edge_idx] = nbor;
-            adjwgt[edge_idx] = (idx_t)(local_edge_weights[i][nbor] / 1024.0);  // convert to KB
+            // Scale edge weights - can be different from vertex scale
+            adjwgt[edge_idx] = (idx_t)(local_edge_weights[i][nbor] * edge_scale);
             if (adjwgt[edge_idx] == 0) adjwgt[edge_idx] = 1;  // ensure non-zero
             edge_idx++;
         }
         xadj[i+1] = edge_idx;
     }
+    
 
     // ParMETIS partitioning
     idx_t ncon = 1;
@@ -295,10 +300,11 @@ int main(int argc, char *argv[]) {
         tpwgts[i] = 1.0 / nparts;
     }
     
-    real_t ubvec[1] = {1.05};
+    real_t ubvec[1] = {1.01};  // Tighter imbalance tolerance (1% instead of 5%)
     idx_t options[METIS_NOPTIONS];
     METIS_SetDefaultOptions(options);
     options[METIS_OPTION_DBGLVL] = 0;  // Suppress ParMETIS debug output
+    options[METIS_OPTION_UFACTOR] = 1;  // Minimize load imbalance (default is 30)
     
     idx_t *part = (idx_t*)malloc(nvtxs_local * sizeof(idx_t));
     
@@ -388,10 +394,10 @@ int main(int argc, char *argv[]) {
     }
 
     // Use AdaptiveRepart since we have an existing partition (oldpe)
-    real_t itr = 0.001;  // Migration control factor (lower = more aggressive rebalancing)
+    real_t itr = atof(argv[2]);  // Migration control factor (lower = more aggressive rebalancing, prioritize load balance)
     
     if (rank == 0) {
-        printf("\n=== Running ParMETIS_V3_AdaptiveRepart (itr=%.3f, vsize=uniform) ===\n", itr);
+        printf("\n=== Running ParMETIS_V3_AdaptiveRepart (itr=%.3f, ubvec=%.3f, vsize=uniform) ===\n", itr, ubvec[0]);
     }
     
     MPI_Comm comm = MPI_COMM_WORLD;
