@@ -19,7 +19,7 @@
 
 
 
-#define ITERATIONS 40
+#define ITERATIONS 100
 
 
 
@@ -92,9 +92,16 @@ Main::Main(CkArgMsg *m)
     printf("size of comm data: %lu\n", globalStatsData->commData.size());
     globalStatsData->deleteCommHash();
     globalStatsData->makeCommHash();
-    numNodes = globalStatsData->n_nodes;
+    
+    // Determine number of PEs from from_proc vector
+    numNodes = 0;
+    for (int i = 0; i < globalStatsData->from_proc.size(); i++) {
+        if (globalStatsData->from_proc[i] + 1 > numNodes) {
+            numNodes = globalStatsData->from_proc[i] + 1;
+        }
+    }
 
-    //load_setconst(globalStatsData);
+    // load_setconst(globalStatsData);
 
    
     CkPrintf("Global stats from %s parsed by Main: %d nodes and %d migratable objects \n", input_filename.c_str(), numNodes, globalStatsData->n_migrateobjs);
@@ -472,7 +479,8 @@ void DiffusionLB::WithinNodeLB()
     if (_lb_args.debug()) CkPrintf("--------STARTING WITHIN NODE LB--------\n");
 
     if(nodeSize==1) {
-      if (_lb_args.debug()) CkPrintf("--------Node size is 1--------\n");
+
+      if (_lb_args.debug() && thisIndex == 0) CkPrintf("Node size = 1, no within-node lb\n");
 
     if (thisIndex == 0)
     {

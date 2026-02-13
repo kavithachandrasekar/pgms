@@ -195,6 +195,7 @@ public:
     void print_avg_load(double sum);
     void print_external_comm(double sum);
     void print_internal_comm(double sum);
+    void print_num_migrations(int sum);
 
 
     int pseudo_itr;  // iteration count
@@ -236,6 +237,7 @@ public:
   std::vector<int> objSenderPEs;
 
     int total_migrates;
+    int total_crossnode_migrates;
 
     int numPes;
 

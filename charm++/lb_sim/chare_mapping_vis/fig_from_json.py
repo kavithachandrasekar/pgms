@@ -11,6 +11,7 @@ import sys
 from matplotlib.patches import Patch
 
 from math import floor
+import statistics
 
 
 def plot_pes(data_old_pe, data_new_pe, positions, mode, highlight, three_d=True, show='both'):
@@ -19,8 +20,8 @@ def plot_pes(data_old_pe, data_new_pe, positions, mode, highlight, three_d=True,
   colors = [cmap(i) for i in range(num_colors)]
   
   # make a scatter plot of objects at their x and y poitiion
-  x = [pos[0] / max(pos[0] for pos in positions) for pos in positions]
-  y = [pos[1] / max(pos[1] for pos in positions) for pos in positions]
+  x = [pos[0] / max(max(pos[0] for pos in positions), .1) for pos in positions]
+  y = [pos[1] / max(max(pos[1] for pos in positions), .1) for pos in positions]
   if three_d: z = [pos[2] / max(pos[2] for pos in positions) for pos in positions]
 
   # Determine number of subplots based on show parameter
@@ -40,17 +41,20 @@ def plot_pes(data_old_pe, data_new_pe, positions, mode, highlight, three_d=True,
   show_condition = lambda pe: pe in highlight # Change this condition as needed
   
   xmax = max(pos[0] for pos in positions)
-  ymax = max(pos[1] for pos in positions)
+  ymax = max(max(pos[1] for pos in positions), .1)
   if three_d: zmax = max(pos[2] for pos in positions)
   xmin = min(pos[0] for pos in positions)
   ymin = min(pos[1] for pos in positions)
   if three_d: zmin = min(pos[2] for pos in positions)
   
+  # Add padding to prevent clipping at edges
+  padding = 0.05
+  
   # Set limits for all axes and hide tick labels
   for ax in axs:
-    ax.set_xlim([xmin/xmax, 1])
-    ax.set_ylim([ymin/ymax, 1])
-    if three_d: ax.set_zlim([zmin/zmax, 1])
+    ax.set_xlim([xmin/xmax - padding, 1 + padding])
+    ax.set_ylim([ymin/ymax - padding, 1 + padding])
+    if three_d: ax.set_zlim([zmin/zmax - padding, 1 + padding])
     
     # Hide axis tick labels
     ax.set_xticklabels([])
@@ -70,41 +74,42 @@ def plot_pes(data_old_pe, data_new_pe, positions, mode, highlight, three_d=True,
   new_y_filtered = [y[i] for i in new_indices]
   if three_d: new_z_filtered = [z[i] for i in new_indices]
   new_colors_filtered = [colors[data_new_pe[i]] for i in new_indices]
-
+  
+  point_size = 100
   if show in ['old', 'both']:
     idx = 0
     if three_d:
-      axs[idx].scatter(old_x_filtered, old_y_filtered, old_z_filtered, c=old_colors_filtered, s=100)
+      axs[idx].scatter(old_x_filtered, old_y_filtered, old_z_filtered, c=old_colors_filtered, s=point_size)
     else:
-      axs[idx].scatter(old_x_filtered, old_y_filtered, c=old_colors_filtered, s=100)
+      axs[idx].scatter(old_x_filtered, old_y_filtered, c=old_colors_filtered, s=point_size)
     
     # Add legend to old subplot
     unique_pes = sorted(set(data_old_pe))
     handles = [Patch(color=colors[pe], label=f'{mode} {pe}') for pe in unique_pes]
-    axs[idx].legend(handles=handles)
+    #axs[idx].legend(handles=handles)
   
   if show in ['new', 'both']:
     idx = 1 if show == 'both' else 0
     if three_d:
-      axs[idx].scatter(new_x_filtered, new_y_filtered, new_z_filtered, c=new_colors_filtered, s=100)
+      axs[idx].scatter(new_x_filtered, new_y_filtered, new_z_filtered, c=new_colors_filtered, s=point_size)
     else:
-      axs[idx].scatter(new_x_filtered, new_y_filtered, c=new_colors_filtered, s=100)
+      axs[idx].scatter(new_x_filtered, new_y_filtered, c=new_colors_filtered, s=point_size)
     
     # Add legend to new subplot
     unique_pes = sorted(set(data_new_pe))
-    handles = [Patch(color=colors[pe], label=f'{mode} {pe}') for pe in unique_pes]
-    axs[idx].legend(handles=handles)
+    # handles = [Patch(color=colors[pe], label=f'{mode} {pe}') for pe in unique_pes]
+    #axs[idx].legend(handles=handles)
 
   plt.tight_layout()
   plt.show()
 
-def plot(json_file, mode = 'pe', highlight = None, three_d=True, show='both'):
+def plot(json_file, mode = 'PE', highlight = None, three_d=True, show='both'):
   """
   Plot PE/node mappings from JSON file.
   
   Parameters:
   - json_file: path to JSON file
-  - mode: 'pe' or 'node' to plot PE or node mappings
+  - mode: 'PE' or 'node' to plot PE or node mappings
   - highlight: list of PE/node IDs to highlight (None = show all)
   - three_d: whether to use 3D plots (auto-detected if not specified)
   - show: 'old', 'new', or 'both' to control which plots to display
@@ -164,8 +169,11 @@ def plot(json_file, mode = 'pe', highlight = None, three_d=True, show='both'):
     load_old[objects[obj]['oldpe']] += objects[obj]['wallTime']
     load_new[objects[obj]['newpe']] += objects[obj]['wallTime']
     
-  print("before LB: max load =", max(load_old), "avg load =", sum(load_old)/num_pes)
-  print("after  LB: max load =", max(load_new), "avg load =", sum(load_new)/num_pes)
+  max_pe_old = load_old.index(max(load_old))
+  max_pe_new = load_new.index(max(load_new))
+  
+  print("before LB: max load =", max(load_old), "avg load =", sum(load_old)/num_pes, "max load on PE", max_pe_old)
+  print("after  LB: max load =", max(load_new), "avg load =", sum(load_new)/num_pes, "max load on PE", max_pe_new)
   
   # compute communication statistics
   if 'commData' in data:
@@ -199,19 +207,10 @@ def plot(json_file, mode = 'pe', highlight = None, three_d=True, show='both'):
     print(f"  Total:    {internal_comm_new_mb + external_comm_new_mb:.5f} MB")
   
   
-  
-  
-  
-# %%
-plot("/Users/maya/ppl/pgms/charm++/lb_sim/greedy_refine_sim/lbdump.json", 'pe', highlight=None, show='new')
 
+  
 # %%
-plot("/Users/maya/ppl/pgms/charm++/lb_sim/diffusion_sim/lbdump.json", 'pe', highlight=None, show='new')
+plot("../diffusion_sim/lbdump.json", 'PE', highlight=None, show='new')
 
-# %%
-plot("/Users/maya/ppl/pgms/charm++/lb_sim/metis/lbdump.json", 'pe', highlight=None, show='new')
-
-# %%
-plot("/Users/maya/software/charm-diffusionlb/examples/charm++/load_balancing/stencil3d/lbdump.json", 'node', highlight=None)
 
 # %%
