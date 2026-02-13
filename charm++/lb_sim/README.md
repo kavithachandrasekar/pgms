@@ -11,3 +11,4 @@ General workflow and usage:
     - more details in the README under stencil3d_lb
 - Run a simulated load balancing strategy on this lbdump. This will produce a json output which describes the new load distribution and all other object qualities (disclaimer: the communication patterns in this json are buggy)
 - Visualize the resulting json data with the chare_mapping_vis tool
+
