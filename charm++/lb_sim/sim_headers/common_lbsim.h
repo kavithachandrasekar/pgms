@@ -22,6 +22,29 @@ static void load_imb_rand40(BaseLB::LDStats *statsData)
   }
 }
 
+static void load_imb_rank0_overload(BaseLB::LDStats *statsData)
+{
+  int nprocs = statsData->n_nodes;
+  int rank0_pe = 0;
+
+  for (int obj = 0; obj < statsData->objData.size(); obj++)
+  {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable)
+    {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+
+    if (pe == rank0_pe)
+    {
+      statsData->objData[obj].wallTime *= 10.0;
+    }
+  }
+}
+
 static void load_imb_inject_middle(BaseLB::LDStats *statsData)
 {
   int nprocs = statsData->n_nodes;
@@ -77,6 +100,40 @@ static void load_imb_bype40(BaseLB::LDStats *statsData)
   }
 }
 
+static void load_imb_bype_deterministic(BaseLB::LDStats *statsData)
+{
+  int nprocs = statsData->n_nodes;
+
+  std::vector<double> scale(nprocs, 0);
+
+  for (int i = 0; i < nprocs; i++)
+  {
+    if (i % 7 == 0)
+      scale[i] = 1.4;
+    else if (i % 7 == 1)
+      scale[i] = 1.2;
+    else if (i % 7 == 2)
+      scale[i] = 0.5;
+    else
+      scale[i] = 1;
+  }
+
+  for (int obj = 0; obj < statsData->objData.size(); obj++)
+  {
+    LDObjData &oData = statsData->objData[obj];
+    int pe = statsData->from_proc[obj];
+    if (!oData.migratable)
+    {
+      if (!statsData->procs[pe].available)
+        CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
+      continue;
+    }
+
+    double load = scale[pe] ;
+    statsData->objData[obj].wallTime = load;
+  }
+}
+
 static void load_imb_rand_pair(BaseLB::LDStats *statsData, int factor = 5)
 {
 
@@ -124,7 +181,7 @@ static void load_setconst(BaseLB::LDStats *statsData)
         CmiAbort("LB sim cannot handle nonmigratable object on an unavial processor!\n");
       continue;
     }
-    statsData->objData[obj].wallTime = 1.0;
+    statsData->objData[obj].wallTime = .01;
   }
 }
 
@@ -273,6 +330,13 @@ obj_imb_funcptr getImbalanceFunction(int fn_type)
         break;
     case 3:
         obj_imb = (obj_imb_funcptr)load_imb_bype40;
+        break;
+
+    case 4:
+        obj_imb = (obj_imb_funcptr)load_imb_bype_deterministic;
+        break;
+    case 5:
+        obj_imb = (obj_imb_funcptr)load_imb_rank0_overload;
         break;
     default:
         obj_imb = (obj_imb_funcptr)no_imb;
